@@ -117,6 +117,50 @@
                 max-width: 28rem;
             }
 
+            .group-link {
+                font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+                font-size: 0.8rem;
+                color: #38bdf8;
+                text-decoration: none;
+            }
+
+            .group-link:hover {
+                text-decoration: underline;
+            }
+
+            .group-count {
+                display: inline-block;
+                font-size: 0.7rem;
+                font-weight: 600;
+                color: #94a3b8;
+                border: 1px solid #334155;
+                border-radius: 9999px;
+                padding: 0.05rem 0.45rem;
+                margin-left: 0.25rem;
+            }
+
+            .group-filter {
+                display: flex;
+                align-items: center;
+                gap: 0.6rem;
+                font-size: 0.85rem;
+                color: #94a3b8;
+                border: 1px solid #334155;
+                border-radius: 0.5rem;
+                padding: 0.5rem 1rem;
+                margin-bottom: 1rem;
+            }
+
+            .group-filter code {
+                font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+                color: #38bdf8;
+            }
+
+            .group-filter a {
+                color: #f87171;
+                text-decoration: none;
+            }
+
             .empty {
                 text-align: center;
                 color: #64748b;
@@ -149,11 +193,19 @@
                 </nav>
             </header>
 
+            @if (request('group'))
+                <div class="group-filter">
+                    Showing group <code>{{ request('group') }}</code>
+                    <a href="{{ route('logs.index', array_filter(['type' => request('type')])) }}">&times; clear</a>
+                </div>
+            @endif
+
             <div class="table-wrap">
                 <table>
                     <thead>
                         <tr>
                             <th>ID</th>
+                            <th>Group</th>
                             <th>Type</th>
                             <th>Message</th>
                             <th>Payload</th>
@@ -164,6 +216,20 @@
                         @forelse ($logs as $log)
                             <tr>
                                 <td>{{ $log->id }}</td>
+                                <td>
+                                    @if ($log->log_group_id)
+                                        <a
+                                            class="group-link"
+                                            href="{{ route('logs.index', array_filter(['type' => request('type'), 'group' => $log->log_group_id])) }}"
+                                            title="{{ $log->log_group_id }}"
+                                        >{{ substr($log->log_group_id, 0, 8) }}</a>
+                                        @if (($log->group_count ?? 1) > 1)
+                                            <span class="group-count">&times;{{ $log->group_count }}</span>
+                                        @endif
+                                    @else
+                                        —
+                                    @endif
+                                </td>
                                 <td><span class="badge {{ $log->type->value }}">{{ $log->type->value }}</span></td>
                                 <td>{{ $log->message ?? '—' }}</td>
                                 <td>
@@ -177,7 +243,7 @@
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="5" class="empty">No logs recorded yet.</td>
+                                <td colspan="6" class="empty">No logs recorded yet.</td>
                             </tr>
                         @endforelse
                     </tbody>

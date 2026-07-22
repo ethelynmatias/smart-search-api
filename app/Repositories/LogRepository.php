@@ -23,12 +23,30 @@ class LogRepository implements LogRepositoryInterface
     }
 
     /**
-     * Paginate logs, newest first, optionally filtered by type.
+     * Paginate logs, newest first, optionally filtered by type and/or group.
+     *
+     * Without a group filter, only the latest record of each group is shown,
+     * with a `group_count` of how many records the group holds.
      */
-    public function paginate(?LogType $type = null, int $perPage = 25): LengthAwarePaginator
+    public function paginate(?LogType $type = null, ?string $logGroupId = null, int $perPage = 25): LengthAwarePaginator
     {
         return Log::query()
+            ->select('logs.*')
             ->when($type, fn ($query, $type) => $query->where('type', $type))
+            ->when($logGroupId, fn ($query, $logGroupId) => $query->where('log_group_id', $logGroupId))
+            ->when(! $logGroupId, function ($query) {
+                $query
+                    ->where(function ($query) {
+                        $query
+                            ->whereNull('log_group_id')
+                            ->orWhereIn('id', Log::selectRaw('MAX(id)')->whereNotNull('log_group_id')->groupBy('log_group_id'));
+                    })
+                    ->addSelect([
+                        'group_count' => Log::from('logs as grouped')
+                            ->selectRaw('COUNT(*)')
+                            ->whereColumn('grouped.log_group_id', 'logs.log_group_id'),
+                    ]);
+            })
             ->latest()
             ->paginate($perPage)
             ->withQueryString();

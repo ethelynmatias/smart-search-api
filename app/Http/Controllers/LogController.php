@@ -19,7 +19,10 @@ class LogController extends Controller
     public function index(Request $request): View
     {
         return view('logs.index', [
-            'logs' => $this->logs->paginate($request->enum('type', LogType::class)),
+            'logs' => $this->logs->paginate(
+                $request->enum('type', LogType::class),
+                $request->query('group'),
+            ),
             'types' => LogType::cases(),
         ]);
     }
