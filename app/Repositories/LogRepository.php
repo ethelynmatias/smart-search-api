@@ -12,9 +12,10 @@ class LogRepository implements LogRepositoryInterface
     /**
      * Persist a new log entry.
      */
-    public function create(LogType $type, ?string $message = null, ?array $payload = null): Log
+    public function create(LogType $type, ?string $message = null, ?array $payload = null, ?string $logGroupId = null): Log
     {
         return Log::create([
+            'log_group_id' => $logGroupId,
             'type' => $type,
             'message' => $message,
             'payload' => $payload,

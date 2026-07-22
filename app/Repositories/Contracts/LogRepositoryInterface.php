@@ -11,7 +11,7 @@ interface LogRepositoryInterface
     /**
      * Persist a new log entry.
      */
-    public function create(LogType $type, ?string $message = null, ?array $payload = null): Log;
+    public function create(LogType $type, ?string $message = null, ?array $payload = null, ?string $logGroupId = null): Log;
 
     /**
      * Paginate logs, newest first, optionally filtered by type.

@@ -77,3 +77,42 @@ Arbitrary artisan/composer commands:
 make artisan cmd="route:list"
 make composer cmd="require vendor/package"
 ```
+
+## HubSpot Webhook
+
+The HubSpot webhook endpoint is:
+
+```
+POST /api/hubspot/event
+```
+
+Incoming events are signature-verified (`X-HubSpot-Signature-v3`) and saved to the `logs` table — browse them at [http://localhost:8080/logs](http://localhost:8080/logs).
+
+Set the client secret from your HubSpot app (Auth → Client secret) in `.env`, then restart the app container:
+
+```dotenv
+HUBSPOT_CLIENT_SECRET=your-secret-here
+```
+
+```bash
+docker compose restart app
+```
+
+### Local testing with ngrok
+
+HubSpot needs a publicly reachable HTTPS URL, so tunnel the local stack with [ngrok](https://ngrok.com):
+
+```bash
+ngrok http 8080
+```
+
+Then use the forwarding URL as the webhook target in your HubSpot app settings:
+
+```
+https://<your-subdomain>.ngrok-free.app/api/hubspot/event
+```
+
+Notes:
+
+- The free-tier ngrok URL changes on every restart — update the URL in HubSpot each time, or reserve a static domain and run `ngrok http 8080 --domain=<your-domain>.ngrok-free.app`.
+- Inspect incoming requests at ngrok's local dashboard: [http://127.0.0.1:4040](http://127.0.0.1:4040).

@@ -14,6 +14,11 @@ return [
     |
     */
 
+    'hubspot' => [
+        'client_secret' => env('HUBSPOT_CLIENT_SECRET'),
+        'access_token' => env('HUBSPOT_ACCESS_TOKEN'),
+    ],
+
     'postmark' => [
         'key' => env('POSTMARK_API_KEY'),
     ],

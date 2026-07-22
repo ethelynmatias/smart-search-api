@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 class Log extends Model
 {
     protected $fillable = [
+        'log_group_id',
         'type',
         'message',
         'payload',
