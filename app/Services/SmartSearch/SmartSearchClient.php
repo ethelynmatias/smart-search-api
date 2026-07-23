@@ -14,16 +14,6 @@ class SmartSearchClient
     ) {}
 
     /**
-     * Send an authenticated GET request to the SmartSearch API.
-     *
-     * @throws SmartSearchException
-     */
-    public function get(string $endpoint, array $query = []): Response
-    {
-        return $this->send('get', $endpoint, $query);
-    }
-
-    /**
      * Send an authenticated POST request to the SmartSearch API.
      *
      * @throws SmartSearchException

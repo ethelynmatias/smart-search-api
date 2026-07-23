@@ -12,28 +12,17 @@ class NotificationService
     ) {}
 
     /**
-     * List pending notifications from SmartSearch.
+     * Send the search link to the end user (SMS by default, or email)
+     * so they can upload their identity document and complete a selfie.
      *
-     * @return NotificationData[]
-     *
-     * @throws SmartSearchException
-     */
-    public function list(): array
-    {
-        return collect($this->client->get('/v3/notifications')->json('data', []))
-            ->map(fn (array $notification) => NotificationData::fromArray($notification))
-            ->all();
-    }
-
-    /**
-     * Retrieve a single notification by its id.
+     * @see https://docs.app.smartsearch.com/#tag/Notification/operation/NotificationV3Create
      *
      * @throws SmartSearchException
      */
-    public function find(string $id): NotificationData
+    public function create(NotificationData $data): array
     {
-        return NotificationData::fromArray(
-            $this->client->get("/v3/notifications/{$id}")->json('data', []),
-        );
+        return $this->client
+            ->post('/v3/notifications', $data->toPayload())
+            ->json('data', []);
     }
 }

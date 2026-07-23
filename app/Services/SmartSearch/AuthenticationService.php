@@ -28,14 +28,6 @@ class AuthenticationService
     }
 
     /**
-     * Discard the cached token (e.g. after a 401) so the next call fetches a fresh one.
-     */
-    public function forget(): void
-    {
-        Cache::forget(self::CACHE_KEY);
-    }
-
-    /**
      * @throws SmartSearchException
      */
     protected function requestToken(): string

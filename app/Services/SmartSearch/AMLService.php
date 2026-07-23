@@ -22,16 +22,4 @@ class AMLService
             ->post('/v3/ukindividual', $data->toPayload())
             ->json('data', []);
     }
-
-    /**
-     * Retrieve an existing AML check by its id.
-     *
-     * @throws SmartSearchException
-     */
-    public function find(string $id): array
-    {
-        return $this->client
-            ->get("/v3/ukindividual/{$id}")
-            ->json('data', []);
-    }
 }

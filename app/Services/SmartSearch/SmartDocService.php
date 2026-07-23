@@ -12,7 +12,10 @@ class SmartDocService
     ) {}
 
     /**
-     * Create a SmartDoc (document verification) check.
+     * Create a SmartDoc (document verification) search.
+     *
+     * Returns the response data. Note the SSID and Search-Subject ID —
+     * both are required to register the webhook and send the notification link.
      *
      * @throws SmartSearchException
      */
@@ -24,14 +27,20 @@ class SmartDocService
     }
 
     /**
-     * Retrieve an existing SmartDoc check by its id.
-     *
-     * @throws SmartSearchException
+     * Extract the SSID from a create() response.
      */
-    public function find(string $id): array
+    public function ssid(array $result): ?string
     {
-        return $this->client
-            ->get("/v3/smartdoc/{$id}")
-            ->json('data', []);
+        return $result['attributes']['ssid'] ?? $result['id'] ?? null;
+    }
+
+    /**
+     * Extract the Search-Subject ID from a create() response.
+     */
+    public function searchSubjectId(array $result): ?string
+    {
+        return $result['attributes']['search_subject_id']
+            ?? $result['relationships']['search_subject']['data']['id']
+            ?? null;
     }
 }
