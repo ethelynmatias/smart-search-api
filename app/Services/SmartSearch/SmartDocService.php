@@ -2,36 +2,36 @@
 
 namespace App\Services\SmartSearch;
 
-use App\Services\SmartSearch\DTOs\UKIndividualRequest;
+use App\DTOs\SmartSearch\SmartDocData;
 use App\Services\SmartSearch\Exceptions\SmartSearchException;
 
-class UKIndividualService
+class SmartDocService
 {
     public function __construct(
         protected SmartSearchClient $client,
     ) {}
 
     /**
-     * Run a UK individual AML check.
+     * Create a SmartDoc (document verification) check.
      *
      * @throws SmartSearchException
      */
-    public function create(UKIndividualRequest $request): array
+    public function create(SmartDocData $data): array
     {
         return $this->client
-            ->post('/v3/ukindividual', $request->toPayload())
+            ->post('/v3/smartdoc', $data->toPayload())
             ->json('data', []);
     }
 
     /**
-     * Retrieve an existing UK individual check by its id.
+     * Retrieve an existing SmartDoc check by its id.
      *
      * @throws SmartSearchException
      */
     public function find(string $id): array
     {
         return $this->client
-            ->get("/v3/ukindividual/{$id}")
+            ->get("/v3/smartdoc/{$id}")
             ->json('data', []);
     }
 }

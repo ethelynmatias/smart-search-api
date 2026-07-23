@@ -2,7 +2,6 @@
 
 namespace App\Services\SmartSearch;
 
-use App\Services\SmartSearch\DTOs\AuthenticateRequest;
 use App\Services\SmartSearch\Exceptions\SmartSearchException;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\Cache;
@@ -47,9 +46,15 @@ class AuthenticationService
         throw_if(blank($appId), SmartSearchException::missingConfig('app_id'));
         throw_if(blank($secret), SmartSearchException::missingConfig('secret'));
 
-        $request = new AuthenticateRequest($appId, $secret);
-
-        $response = $this->request()->post('/v3/auth/token', $request->toPayload());
+        $response = $this->request()->post('/v3/auth/token', [
+            'data' => [
+                'type' => 'app-token',
+                'attributes' => [
+                    'app_id' => $appId,
+                    'app_secret' => $secret,
+                ],
+            ],
+        ]);
 
         throw_if($response->failed(), fn () => SmartSearchException::requestFailed('/v3/auth/token', $response));
 
