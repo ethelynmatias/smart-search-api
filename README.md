@@ -78,6 +78,70 @@ make artisan cmd="route:list"
 make composer cmd="require vendor/package"
 ```
 
+## File Structure
+
+Application code specific to this project:
+
+```
+app/
+├── DTOs/
+│   └── SmartSearch/
+│       ├── AMLData.php               # AML check payload (name, DoB, sex, country, ID types)
+│       ├── AddressData.php           # Postcode-lookup address (flat, building, lines, town, region)
+│       ├── NotificationData.php      # Search link notification (SMS/email)
+│       ├── SmartDocData.php          # SmartDoc search payload
+│       └── WebhookData.php           # Parsed incoming SmartSearch webhook
+│
+├── Enums/
+│   └── LogType.php                   # webhook | api
+│
+├── Http/
+│   ├── Controllers/
+│   │   ├── LogController.php         # /logs/{token} viewer
+│   │   ├── SmartSearchController.php # AML + SmartDoc endpoints
+│   │   ├── Webhook/
+│   │   │   └── HubSpotWebhookController.php
+│   │   └── Webhooks/
+│   │       └── SmartSearchWebhookController.php
+│   └── Requests/
+│       ├── AMLRequest.php            # AML validation
+│       └── SmartDocRequest.php       # SmartDoc validation (+ notify_method sms/email)
+│
+├── Models/
+│   ├── Log.php                       # logs table (type, message, payload, log_group_id)
+│   └── SmartSearchSearch.php         # SmartSearch searches (search_id, type, status, result)
+│
+├── Repositories/
+│   ├── Contracts/
+│   │   └── LogRepositoryInterface.php
+│   └── LogRepository.php
+│
+└── Services/
+    ├── HubSpotWebhookService.php     # Signature check, event dispatch, deal/contact fetch
+    ├── LogService.php                # Creates logs with a shared per-request log_group_id
+    └── SmartSearch/
+        ├── AMLService.php            # POST /v3/ukindividual (synchronous result)
+        ├── AuthenticationService.php # Token fetch + 14-minute cache
+        ├── SmartSearchClient.php     # Authenticated JSON:API HTTP client
+        ├── SmartDocService.php       # POST /v3/smartdoc (+ SSID / subject-id extractors)
+        ├── NotificationService.php   # Sends search link to end user
+        ├── WebhookService.php        # Registers search webhooks + handles callbacks
+        └── Exceptions/
+            └── SmartSearchException.php
+```
+
+Supporting files: `routes/api.php` (HubSpot/SmartSearch endpoints), `routes/web.php` (welcome + logs), `config/services.php` (`hubspot`, `smartsearch` credentials), `config/logs.php` (logs page token), `public/css/logs.css`, `docker/nginx/default.conf`.
+
+## API Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/smartsearch/aml` | Run a UK individual AML check (synchronous) |
+| POST | `/api/smartsearch/smartdoc` | Create a SmartDoc search, register its webhook, and send the link to the client (SMS default) |
+| POST | `/api/smartsearch/event` | SmartSearch webhook receiver |
+| POST | `/api/hubspot/event` | HubSpot webhook receiver |
+| GET | `/logs/{token}` | Log viewer (token from `LOGS_ACCESS_TOKEN`) |
+
 ## HubSpot Webhook
 
 The HubSpot webhook endpoint is:
