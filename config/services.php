@@ -14,6 +14,12 @@ return [
     |
     */
 
+    'smartsearch' => [
+        'base_url' => env('SMARTSEARCH_BASE_URL'),
+        'app_id' => env('SMARTSEARCH_APP_ID'),
+        'secret' => env('SMARTSEARCH_SECRET'),
+    ],
+
     'hubspot' => [
         'client_secret' => env('HUBSPOT_CLIENT_SECRET'),
         'access_token' => env('HUBSPOT_ACCESS_TOKEN'),

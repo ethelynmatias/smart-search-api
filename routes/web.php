@@ -7,4 +7,4 @@ Route::get('/', function () {
     return view('welcome');
 });
 
-Route::get('/logs', [LogController::class, 'index'])->name('logs.index');
+Route::get('/logs/{token}', [LogController::class, 'index'])->name('logs.index');
