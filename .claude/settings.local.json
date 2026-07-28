@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(docker compose *)",
-      "Bash(git rm *)"
+      "Bash(git rm *)",
+      "Bash(composer dump-autoload *)",
+      "Bash(vendor/bin/pint --test app/Services/SmartSearch/)"
     ]
   }
 }
