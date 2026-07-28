@@ -2,6 +2,8 @@
 
 namespace App\Services;
 
+use App\Services\SmartSearch\AmlService;
+use App\Services\SmartSearch\Exceptions\SmartSearchException;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
@@ -9,8 +11,14 @@ use Illuminate\Support\Facades\Log;
 
 class HubSpotWebhookService
 {
+    /**
+     * Contact fields the AML search cannot run without.
+     */
+    protected const AML_REQUIRED_FIELDS = ['title', 'first_name', 'last_name', 'address1', 'city', 'postcode'];
+
     public function __construct(
         protected LogService $logService,
+        protected AmlService $amlService,
     ) {}
 
     /**
@@ -82,13 +90,84 @@ class HubSpotWebhookService
         $deal = $this->fetchDeal((string) $dealId);
         $contacts = $this->fetchDealContacts((string) $dealId);
 
-        $this->logService->webhook("HubSpot: deal {$value} contacts", [
+        $log = $this->logService->webhook("HubSpot: deal {$value} contacts", [
             'dealId' => $dealId,
             'propertyName' => $event['propertyName'] ?? null,
             'propertyValue' => $value,
             'deal' => $deal,
             'contacts' => $contacts,
         ]);
+
+        if (blank($contacts)) {
+            return;
+        }
+
+        // Run the AML search per contact and fold the results back into the
+        // same log record, so the whole deal lives under one id.
+        $log->update([
+            'payload' => [...$log->payload, 'aml' => $this->runAmlSearches($contacts)],
+        ]);
+    }
+
+    /**
+     * Run a SmartSearch AML search for each contact on the deal.
+     *
+     * Never throws: a contact that cannot be searched is recorded alongside
+     * the ones that could, so one bad contact does not lose the rest.
+     */
+    protected function runAmlSearches(array $contacts): array
+    {
+        $results = [];
+
+        foreach ($contacts as $contact) {
+            $properties = $contact['properties'] ?? [];
+
+            $data = [
+                'title' => $properties['salutation'] ?? null,
+                'first_name' => $properties['firstname'] ?? null,
+                'last_name' => $properties['lastname'] ?? null,
+                'address1' => $properties['address'] ?? null,
+                'city' => $properties['city'] ?? null,
+                'postcode' => $properties['zip'] ?? null,
+            ];
+
+            $missing = array_values(array_filter(
+                self::AML_REQUIRED_FIELDS,
+                fn (string $field) => blank($data[$field] ?? null),
+            ));
+
+            if (filled($missing)) {
+                $results[] = [
+                    'contactId' => $contact['id'] ?? null,
+                    'skipped' => 'missing required contact fields',
+                    'missing' => $missing,
+                ];
+
+                continue;
+            }
+
+            try {
+                $results[] = [
+                    'contactId' => $contact['id'] ?? null,
+                    'result' => $this->amlService->search($data),
+                ];
+            } catch (SmartSearchException $e) {
+                Log::warning('SmartSearch AML search failed for HubSpot contact.', [
+                    'contactId' => $contact['id'] ?? null,
+                    'status' => $e->status,
+                    'error' => $e->getMessage(),
+                ]);
+
+                $results[] = [
+                    'contactId' => $contact['id'] ?? null,
+                    'error' => $e->getMessage(),
+                    'status' => $e->status,
+                    'errors' => $e->errors,
+                ];
+            }
+        }
+
+        return $results;
     }
 
     /**
@@ -161,7 +240,8 @@ class HubSpotWebhookService
         }
 
         $response = $client->post('/crm/v3/objects/contacts/batch/read', [
-            'properties' => ['firstname', 'lastname', 'email', 'phone', 'company', 'lifecyclestage'],
+            // salutation/address/city/zip feed the AML search.
+            'properties' => ['firstname', 'lastname', 'email', 'phone', 'company', 'lifecyclestage', 'salutation', 'address', 'city', 'zip', 'state', 'country'],
             'inputs' => $contactIds->map(fn ($id) => ['id' => (string) $id])->all(),
         ]);
 
