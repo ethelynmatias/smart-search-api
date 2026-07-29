@@ -5,10 +5,12 @@ namespace App\Services;
 use App\Services\SmartSearch\AmlService;
 use App\Services\SmartSearch\Exceptions\SmartSearchException;
 use App\Services\SmartSearch\SmartDocService;
+use Carbon\Carbon;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Throwable;
 
 class HubSpotWebhookService
 {
@@ -20,7 +22,7 @@ class HubSpotWebhookService
     /**
      * Contact fields the SmartDoc verification cannot be created without.
      */
-    protected const SMARTDOC_REQUIRED_FIELDS = ['first_name', 'last_name', 'building', 'town', 'postcode'];
+    protected const SMARTDOC_REQUIRED_FIELDS = ['first_name', 'last_name', 'building', 'town', 'postcode', 'date_of_birth', 'sex'];
 
     public function __construct(
         protected LogService $logService,
@@ -115,10 +117,15 @@ class HubSpotWebhookService
 
         if (filled($aml)) {
             // Fold the results back into the same log record, so the whole deal
-            // lives under one id.
-            $log->update([
+            /*$log->update([
                 'payload' => [...$log->payload, 'aml' => $aml],
+            ]);*/
+            $this->logService->webhook("HubSpot: deal {$value} aml", [
+                'dealId' => $dealId,
+                'propertyValue' => $value,
+                'aml' => $aml,
             ]);
+
         }
 
         // SmartDoc runs off the same subjects. It lands on its own log line so
@@ -260,8 +267,8 @@ class HubSpotWebhookService
             'first_name' => $properties['firstname'] ?? null,
             'middle_name' => null,
             'last_name' => $properties['lastname'] ?? null,
-            'date_of_birth' => $properties['date_of_birth'] ?? null,
-            'sex' => $properties['gender'] ?? null,
+            'date_of_birth' => $this->normaliseDate($properties['date_of_birth'] ?? null),
+            'sex' => $this->normaliseSex($properties['gender'] ?? null),
             'building' => $properties['address'] ?? null,
             'street_1' => $properties['address'] ?? null,
             'town' => $properties['city'] ?? null,
@@ -269,6 +276,42 @@ class HubSpotWebhookService
             'postcode' => $properties['zip'] ?? null,
             'country' => $properties['country'] ?? 'GBR',
         ];
+    }
+
+    /**
+     * Normalise a HubSpot date property to the Y-m-d SmartDoc expects.
+     *
+     * Date properties come back as either an ISO date or epoch milliseconds
+     * depending on how the property was written.
+     */
+    protected function normaliseDate(mixed $value): ?string
+    {
+        if (blank($value)) {
+            return null;
+        }
+
+        try {
+            return is_numeric($value)
+                ? Carbon::createFromTimestampMs((int) $value)->format('Y-m-d')
+                : Carbon::parse((string) $value)->format('Y-m-d');
+        } catch (Throwable) {
+            return null;
+        }
+    }
+
+    /**
+     * Normalise a HubSpot gender property to the SmartDoc sex values.
+     *
+     * Anything that is not recognisably male or female is dropped rather
+     * than guessed at, so the search is skipped instead of sent wrong.
+     */
+    protected function normaliseSex(mixed $value): ?string
+    {
+        return match (strtolower(trim((string) $value))) {
+            'male', 'm' => 'male',
+            'female', 'f' => 'female',
+            default => null,
+        };
     }
 
     /**
@@ -403,8 +446,9 @@ class HubSpotWebhookService
         }
 
         $response = $client->post('/crm/v3/objects/contacts/batch/read', [
-            // salutation/address/city/zip feed the AML search.
-            'properties' => ['firstname', 'lastname', 'email', 'phone', 'company', 'lifecyclestage', 'salutation', 'address', 'city', 'zip', 'state', 'country'],
+            // salutation/address/city/zip feed the AML search;
+            // date_of_birth/gender feed the SmartDoc verification.
+            'properties' => ['firstname', 'lastname', 'email', 'phone', 'company', 'lifecyclestage', 'salutation', 'address', 'city', 'zip', 'state', 'country', 'date_of_birth', 'gender'],
             'inputs' => $contactIds->map(fn ($id) => ['id' => (string) $id])->all(),
         ]);
 

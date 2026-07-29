@@ -9,6 +9,9 @@
         <link rel="stylesheet" href="{{ asset('css/logs.css') }}">
     </head>
     <body>
+        {{-- Payloads are only worth the room once a single group is in view. --}}
+        @php($showPayload = filled(request('group')))
+
         <div class="container">
             <header>
                 <h1>Logs</h1>
@@ -63,14 +66,38 @@
                                 <td><span class="badge {{ $log->type->value }}">{{ $log->type->value }}</span></td>
                                 <td>{{ $log->message ?? '—' }}</td>
                                 <td>
-                                    @if ($log->payload)
-                                        <pre>{{ json_encode($log->payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) }}</pre>
+                                    @if (! $log->payload)
+                                        <span class="muted">—</span>
+                                    @elseif ($showPayload)
+                                        <span class="muted">below</span>
+                                    @elseif ($log->log_group_id)
+                                        {{-- Off the group view the payload stays collapsed behind its group. --}}
+                                        <a
+                                            class="payload-link"
+                                            href="{{ route('logs.index', array_filter(['token' => $token, 'type' => request('type'), 'group' => $log->log_group_id])) }}"
+                                        >View payload</a>
                                     @else
-                                        —
+                                        <span class="muted">—</span>
                                     @endif
                                 </td>
-                                <td>{{ $log->created_at->format('Y-m-d H:i:s') }}</td>
+                                <td class="nowrap">{{ $log->created_at->format('Y-m-d H:i:s') }}</td>
                             </tr>
+
+                            {{-- In a group the payload gets the full width of the
+                                 table rather than one cramped column. --}}
+                            @if ($showPayload && $log->payload)
+                                <tr class="payload-row">
+                                    <td colspan="6">
+                                        <details open>
+                                            <summary>
+                                                <span class="payload-title">{{ $log->message ?? 'Payload' }}</span>
+                                                <span class="payload-meta">#{{ $log->id }}</span>
+                                            </summary>
+                                            <pre class="payload">{{ json_encode($log->payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) }}</pre>
+                                        </details>
+                                    </td>
+                                </tr>
+                            @endif
                         @empty
                             <tr>
                                 <td colspan="6" class="empty">No logs recorded yet.</td>
@@ -81,7 +108,7 @@
             </div>
 
             <div class="pagination">
-                {{ $logs->links() }}
+                {{ $logs->appends(request()->query())->links('vendor.pagination.logs') }}
             </div>
         </div>
     </body>

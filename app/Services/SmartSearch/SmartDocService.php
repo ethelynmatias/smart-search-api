@@ -21,7 +21,7 @@ class SmartDocService
                     'rule_adjustments' => null,
                     'date_of_birth' => $data['date_of_birth'],
                     'sex' => $data['sex'],
-                    'scan_type' => $data['scan_type'] ?? 'expert',
+                    'scan_type' => 'advanced',
                     'status' => 'complete',
 
                     'document_types' => [
