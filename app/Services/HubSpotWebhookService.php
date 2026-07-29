@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Services\SmartSearch\AmlService;
 use App\Services\SmartSearch\Exceptions\SmartSearchException;
+use App\Services\SmartSearch\SmartDocService;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
@@ -16,9 +17,15 @@ class HubSpotWebhookService
      */
     protected const AML_REQUIRED_FIELDS = ['title', 'first_name', 'last_name', 'address1', 'city', 'postcode'];
 
+    /**
+     * Contact fields the SmartDoc verification cannot be created without.
+     */
+    protected const SMARTDOC_REQUIRED_FIELDS = ['first_name', 'last_name', 'building', 'town', 'postcode'];
+
     public function __construct(
         protected LogService $logService,
         protected AmlService $amlService,
+        protected SmartDocService $smartDocService,
     ) {}
 
     /**
@@ -89,6 +96,7 @@ class HubSpotWebhookService
 
         $deal = $this->fetchDeal((string) $dealId);
         $contacts = $this->fetchDealContacts((string) $dealId);
+        $company = $this->fetchDealCompany((string) $dealId);
 
         $log = $this->logService->webhook("HubSpot: deal {$value} contacts", [
             'dealId' => $dealId,
@@ -96,16 +104,37 @@ class HubSpotWebhookService
             'propertyValue' => $value,
             'deal' => $deal,
             'contacts' => $contacts,
+            'company' => $company,
         ]);
 
-        if (blank($contacts)) {
+        // Contacts are the preferred AML subjects; with none on the deal we
+        // fall back to the company owner, using the company's own address.
+        $aml = filled($contacts)
+            ? $this->runAmlSearches($contacts)
+            : $this->runCompanyOwnerAmlSearch($company);
+
+        if (filled($aml)) {
+            // Fold the results back into the same log record, so the whole deal
+            // lives under one id.
+            $log->update([
+                'payload' => [...$log->payload, 'aml' => $aml],
+            ]);
+        }
+
+        // SmartDoc runs off the same subjects. It lands on its own log line so
+        // the two searches read separately, sharing the log group id.
+        $smartDoc = filled($contacts)
+            ? $this->runSmartDocSearches($contacts)
+            : $this->runCompanyOwnerSmartDocSearch($company);
+
+        if (blank($smartDoc)) {
             return;
         }
 
-        // Run the AML search per contact and fold the results back into the
-        // same log record, so the whole deal lives under one id.
-        $log->update([
-            'payload' => [...$log->payload, 'aml' => $this->runAmlSearches($contacts)],
+        $this->logService->webhook("HubSpot: deal {$value} smartdoc", [
+            'dealId' => $dealId,
+            'propertyValue' => $value,
+            'smartdoc' => $smartDoc,
         ]);
     }
 
@@ -122,52 +151,186 @@ class HubSpotWebhookService
         foreach ($contacts as $contact) {
             $properties = $contact['properties'] ?? [];
 
-            $data = [
-                'title' => $properties['salutation'] ?? null,
-                'first_name' => $properties['firstname'] ?? null,
-                'last_name' => $properties['lastname'] ?? null,
-                'address1' => $properties['address'] ?? null,
-                'city' => $properties['city'] ?? null,
-                'postcode' => $properties['zip'] ?? null,
-            ];
-
-            $missing = array_values(array_filter(
+            $results[] = $this->runAmlSearch(
+                [
+                    'title' => $properties['salutation'] ?? null,
+                    'first_name' => $properties['firstname'] ?? null,
+                    'last_name' => $properties['lastname'] ?? null,
+                    'address1' => $properties['address'] ?? null,
+                    'city' => $properties['city'] ?? null,
+                    'postcode' => $properties['zip'] ?? null,
+                ],
+                ['contactId' => $contact['id'] ?? null],
                 self::AML_REQUIRED_FIELDS,
-                fn (string $field) => blank($data[$field] ?? null),
-            ));
-
-            if (filled($missing)) {
-                $results[] = [
-                    'contactId' => $contact['id'] ?? null,
-                    'skipped' => 'missing required contact fields',
-                    'missing' => $missing,
-                ];
-
-                continue;
-            }
-
-            try {
-                $results[] = [
-                    'contactId' => $contact['id'] ?? null,
-                    'result' => $this->amlService->search($data),
-                ];
-            } catch (SmartSearchException $e) {
-                Log::warning('SmartSearch AML search failed for HubSpot contact.', [
-                    'contactId' => $contact['id'] ?? null,
-                    'status' => $e->status,
-                    'error' => $e->getMessage(),
-                ]);
-
-                $results[] = [
-                    'contactId' => $contact['id'] ?? null,
-                    'error' => $e->getMessage(),
-                    'status' => $e->status,
-                    'errors' => $e->errors,
-                ];
-            }
+            );
         }
 
         return $results;
+    }
+
+    /**
+     * Run a single AML search for the company owner, for deals that have no
+     * associated contacts. The owner supplies the name and the company the
+     * address; owners carry no salutation, so title is not required here.
+     */
+    protected function runCompanyOwnerAmlSearch(array $company): array
+    {
+        $owner = $company['owner'] ?? [];
+
+        if (blank($owner)) {
+            return [];
+        }
+
+        $properties = $company['properties'] ?? [];
+
+        $result = $this->runAmlSearch(
+            [
+                'title' => null,
+                'first_name' => $owner['firstName'] ?? null,
+                'last_name' => $owner['lastName'] ?? null,
+                'address1' => $properties['address'] ?? null,
+                'city' => $properties['city'] ?? null,
+                'postcode' => $properties['zip'] ?? null,
+            ],
+            [
+                'source' => 'company owner',
+                'companyId' => $company['id'] ?? null,
+                'ownerId' => $owner['id'] ?? null,
+            ],
+            array_values(array_diff(self::AML_REQUIRED_FIELDS, ['title'])),
+        );
+
+        return [$result];
+    }
+
+    /**
+     * Create a SmartDoc verification for each contact on the deal.
+     */
+    protected function runSmartDocSearches(array $contacts): array
+    {
+        $results = [];
+
+        foreach ($contacts as $contact) {
+            $results[] = $this->runSmartDocSearch(
+                $this->smartDocData($contact['properties'] ?? []),
+                ['contactId' => $contact['id'] ?? null],
+            );
+        }
+
+        return $results;
+    }
+
+    /**
+     * Create a SmartDoc verification for the company owner, for deals that
+     * have no associated contacts.
+     */
+    protected function runCompanyOwnerSmartDocSearch(array $company): array
+    {
+        $owner = $company['owner'] ?? [];
+
+        if (blank($owner)) {
+            return [];
+        }
+
+        $data = $this->smartDocData($company['properties'] ?? []);
+
+        // The owner supplies the name, the company the address.
+        $data['first_name'] = $owner['firstName'] ?? null;
+        $data['last_name'] = $owner['lastName'] ?? null;
+
+        return [
+            $this->runSmartDocSearch($data, [
+                'source' => 'company owner',
+                'companyId' => $company['id'] ?? null,
+                'ownerId' => $owner['id'] ?? null,
+            ]),
+        ];
+    }
+
+    /**
+     * Map HubSpot properties onto the SmartDoc payload fields.
+     *
+     * Every key SmartDocService reads is present, so a property HubSpot does
+     * not hold is sent as null rather than raising an undefined key warning.
+     */
+    protected function smartDocData(array $properties): array
+    {
+        return [
+            'title' => $properties['salutation'] ?? null,
+            'first_name' => $properties['firstname'] ?? null,
+            'middle_name' => null,
+            'last_name' => $properties['lastname'] ?? null,
+            'date_of_birth' => $properties['date_of_birth'] ?? null,
+            'sex' => $properties['gender'] ?? null,
+            'building' => $properties['address'] ?? null,
+            'street_1' => $properties['address'] ?? null,
+            'town' => $properties['city'] ?? null,
+            'region' => $properties['state'] ?? null,
+            'postcode' => $properties['zip'] ?? null,
+            'country' => $properties['country'] ?? 'GBR',
+        ];
+    }
+
+    /**
+     * Run one SmartDoc creation and describe the outcome.
+     *
+     * Never throws, for the same reason as the AML searches.
+     */
+    protected function runSmartDocSearch(array $data, array $meta): array
+    {
+        $missing = array_values(array_filter(
+            self::SMARTDOC_REQUIRED_FIELDS,
+            fn (string $field) => blank($data[$field] ?? null),
+        ));
+
+        if (filled($missing)) {
+            return [...$meta, 'skipped' => 'missing required smartdoc fields', 'missing' => $missing];
+        }
+
+        try {
+            return [...$meta, 'result' => $this->smartDocService->create($data)];
+        } catch (SmartSearchException $e) {
+            Log::warning('SmartDoc creation failed for HubSpot subject.', [
+                ...$meta,
+                'status' => $e->status,
+                'error' => $e->getMessage(),
+            ]);
+
+            return [...$meta, 'error' => $e->getMessage(), 'status' => $e->status, 'errors' => $e->errors];
+        }
+    }
+
+    /**
+     * Run one SmartSearch AML search and describe the outcome.
+     *
+     * Never throws: a subject that cannot be searched is recorded alongside
+     * the ones that could, so one bad subject does not lose the rest.
+     *
+     * @param  array  $meta  identifying fields merged into the result
+     * @param  array  $required  fields that must be present to search
+     */
+    protected function runAmlSearch(array $data, array $meta, array $required): array
+    {
+        $missing = array_values(array_filter(
+            $required,
+            fn (string $field) => blank($data[$field] ?? null),
+        ));
+
+        if (filled($missing)) {
+            return [...$meta, 'skipped' => 'missing required contact fields', 'missing' => $missing];
+        }
+
+        try {
+            return [...$meta, 'result' => $this->amlService->search($data)];
+        } catch (SmartSearchException $e) {
+            Log::warning('SmartSearch AML search failed for HubSpot subject.', [
+                ...$meta,
+                'status' => $e->status,
+                'error' => $e->getMessage(),
+            ]);
+
+            return [...$meta, 'error' => $e->getMessage(), 'status' => $e->status, 'errors' => $e->errors];
+        }
     }
 
     /**
@@ -261,6 +424,105 @@ class HubSpotWebhookService
                 'properties' => $contact['properties'] ?? [],
             ])
             ->all();
+    }
+
+    /**
+     * Fetch the company associated with a deal, along with its owner.
+     *
+     * A deal can carry several companies; HubSpot treats the first association
+     * as the primary one, which is the one we record.
+     */
+    protected function fetchDealCompany(string $dealId): array
+    {
+        $token = config('services.hubspot.access_token');
+
+        if (blank($token)) {
+            Log::warning('HubSpot access token is not set; cannot fetch deal company.', ['dealId' => $dealId]);
+
+            return [];
+        }
+
+        $client = $this->client($token);
+
+        $associations = $client->get("/crm/v4/objects/deals/{$dealId}/associations/companies");
+
+        if ($associations->failed()) {
+            Log::warning('Failed to fetch HubSpot deal company associations.', [
+                'dealId' => $dealId,
+                'status' => $associations->status(),
+                'body' => $associations->json(),
+            ]);
+
+            return [];
+        }
+
+        $companyId = collect($associations->json('results', []))
+            ->pluck('toObjectId')
+            ->filter()
+            ->first();
+
+        if (blank($companyId)) {
+            return [];
+        }
+
+        $response = $client->get("/crm/v3/objects/companies/{$companyId}", [
+            'properties' => 'name,domain,industry,phone,address,city,state,zip,country,hubspot_owner_id',
+        ]);
+
+        if ($response->failed()) {
+            Log::warning('Failed to fetch HubSpot company for deal.', [
+                'dealId' => $dealId,
+                'companyId' => $companyId,
+                'status' => $response->status(),
+                'body' => $response->json(),
+            ]);
+
+            return [];
+        }
+
+        $properties = $response->json('properties', []);
+
+        return [
+            'id' => $response->json('id'),
+            'properties' => $properties,
+            'owner' => $this->fetchOwner($properties['hubspot_owner_id'] ?? null),
+        ];
+    }
+
+    /**
+     * Fetch a HubSpot owner (user) record by id.
+     */
+    protected function fetchOwner(?string $ownerId): array
+    {
+        if (blank($ownerId)) {
+            return [];
+        }
+
+        $token = config('services.hubspot.access_token');
+
+        if (blank($token)) {
+            return [];
+        }
+
+        $response = $this->client($token)->get("/crm/v3/owners/{$ownerId}");
+
+        if ($response->failed()) {
+            Log::warning('Failed to fetch HubSpot owner.', [
+                'ownerId' => $ownerId,
+                'status' => $response->status(),
+                'body' => $response->json(),
+            ]);
+
+            return [];
+        }
+
+        return [
+            'id' => $response->json('id'),
+            'email' => $response->json('email'),
+            'firstName' => $response->json('firstName'),
+            'lastName' => $response->json('lastName'),
+            'userId' => $response->json('userId'),
+        ];
     }
 
     /**

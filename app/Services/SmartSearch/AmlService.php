@@ -36,6 +36,7 @@ class AmlService
                                 'building' => $data['address1'],
                                 'town' => $data['city'],
                                 'postcode' => $data['postcode'],
+                                'duration'=> 1
                             ],
                         ],
 
