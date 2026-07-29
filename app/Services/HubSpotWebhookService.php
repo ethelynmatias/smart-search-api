@@ -2,6 +2,8 @@
 
 namespace App\Services;
 
+use App\Enums\WebhookDetailStatus;
+use App\Repositories\Contracts\WebhookDetailRepositoryInterface;
 use App\Services\SmartSearch\AmlService;
 use App\Services\SmartSearch\Exceptions\SmartSearchException;
 use App\Services\SmartSearch\SmartDocService;
@@ -28,6 +30,7 @@ class HubSpotWebhookService
         protected LogService $logService,
         protected AmlService $amlService,
         protected SmartDocService $smartDocService,
+        protected WebhookDetailRepositoryInterface $webhookDetails,
     ) {}
 
     /**
@@ -138,11 +141,49 @@ class HubSpotWebhookService
             return;
         }
 
-        $this->logService->webhook("HubSpot: deal {$value} smartdoc", [
+        $smartDocLog = $this->logService->webhook("HubSpot: deal {$value} smartdoc", [
             'dealId' => $dealId,
             'propertyValue' => $value,
             'smartdoc' => $smartDoc,
         ]);
+
+        $this->recordSmartDocDetails((string) $dealId, $smartDoc, $smartDocLog->log_group_id);
+    }
+
+    /**
+     * Persist one pending webhook detail per created SmartDoc search, so the
+     * result callback can be matched back to its deal by ssid.
+     *
+     * Entries that were skipped or errored never reached SmartSearch and carry
+     * no ssid, so there is nothing to wait on and they are not recorded.
+     */
+    protected function recordSmartDocDetails(string $dealId, array $smartDoc, ?string $groupId): void
+    {
+        foreach ($smartDoc as $entry) {
+            $result = $entry['result'] ?? null;
+
+            $ssid = data_get($result, 'data.id');
+
+            if (blank($ssid)) {
+                continue;
+            }
+
+            // Keyed on the ssid so a webhook HubSpot redelivers, or a deal that
+            // closes twice, does not leave a second row waiting on one search.
+            $this->webhookDetails->firstOrCreate(
+                [
+                    'ssid' => (string) $ssid,
+                    'type' => 'smartdoc',
+                ],
+                [
+                    'group_id' => $groupId,
+                    'deal_id' => $dealId,
+                    'search_subject_id' => data_get($result, 'data.relationships.subject.data.id'),
+                    'status' => WebhookDetailStatus::Pending,
+                    'payload' => $entry,
+                ],
+            );
+        }
     }
 
     /**
