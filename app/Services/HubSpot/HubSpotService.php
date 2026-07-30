@@ -27,6 +27,14 @@ class HubSpotService
     }
 
     /**
+     * Write the UK individual AML search id back onto the deal.
+     */
+    public function updateSmartSearchUkIndividualSsid(string $dealId, string $ssid): array
+    {
+        return $this->updateDealProperties($dealId, ['smartsearch_uk_individual_ssid' => $ssid]);
+    }
+
+    /**
      * Patch properties onto a deal.
      *
      * Never throws: the search and its status are already held on the webhook
