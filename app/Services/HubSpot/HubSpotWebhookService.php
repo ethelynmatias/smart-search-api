@@ -10,6 +10,7 @@ use App\Services\SmartSearch\Exceptions\SmartSearchException;
 use App\Services\SmartSearch\SmartDocService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -97,6 +98,20 @@ class HubSpotWebhookService
         $dealId = $event['objectId'] ?? null;
 
         if (blank($dealId)) {
+            return;
+        }
+
+        // HubSpot sends a propertyChange event per property and redelivers on
+        // its own schedule, so one deal closing arrives here several times. The
+        // first delivery claims the deal for the day; the rest stop here, before
+        // any search is run, any deal property is written or any log is stored.
+        if (! $this->claimDealEvent((string) $dealId, $value)) {
+            Log::debug('Duplicate HubSpot deal event skipped.', [
+                'dealId' => $dealId,
+                'propertyName' => $event['propertyName'] ?? null,
+                'propertyValue' => $value,
+            ]);
+
             return;
         }
 
@@ -316,6 +331,22 @@ class HubSpotWebhookService
                 'errors' => $e->errors,
             ]);
         }
+    }
+
+    /**
+     * Claim a deal at a property value for the rest of the day.
+     *
+     * True for the first caller, false for every one after it. Cache::add is
+     * atomic, so two deliveries arriving at once cannot both claim it — which a
+     * read-then-write check against the logs could not guarantee.
+     */
+    protected function claimDealEvent(string $dealId, string $value): bool
+    {
+        return Cache::add(
+            "hubspot:deal:{$dealId}:{$value}",
+            now()->toDateTimeString(),
+            now()->endOfDay(),
+        );
     }
 
     /**

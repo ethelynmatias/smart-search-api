@@ -7,7 +7,8 @@
       "Bash(vendor/bin/pint --test app/Services/SmartSearch/)",
       "Bash(php -l app/Services/HubSpotWebhookService.php)",
       "Bash(./vendor/bin/pint app/Services/HubSpotWebhookService.php)",
-      "Bash(./vendor/bin/phpunit tests/Feature/HubSpotWebhookServiceTest.php)"
+      "Bash(./vendor/bin/phpunit tests/Feature/HubSpotWebhookServiceTest.php)",
+      "Bash(php artisan *)"
     ]
   }
 }
