@@ -22,18 +22,20 @@ class LogService
 
     /**
      * Create a log entry.
+     *
+     * @param  string|null  $logGroupId  join an existing group instead of this process's own
      */
-    public function create(LogType $type, ?string $message = null, ?array $payload = null): Log
+    public function create(LogType $type, ?string $message = null, ?array $payload = null, ?string $logGroupId = null): Log
     {
-        return $this->logs->create($type, $message, $payload, $this->logGroupId);
+        return $this->logs->create($type, $message, $payload, $logGroupId ?? $this->logGroupId);
     }
 
     /**
      * Create a webhook log entry.
      */
-    public function webhook(?string $message = null, ?array $payload = null): Log
+    public function webhook(?string $message = null, ?array $payload = null, ?string $logGroupId = null): Log
     {
-        return $this->create(LogType::Webhook, $message, $payload);
+        return $this->create(LogType::Webhook, $message, $payload, $logGroupId);
     }
 
     /**

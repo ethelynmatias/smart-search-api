@@ -18,6 +18,10 @@ return [
         'base_url' => env('SMARTSEARCH_BASE_URL'),
         'app_id' => env('SMARTSEARCH_APP_ID'),
         'secret' => env('SMARTSEARCH_SECRET'),
+        // Where SmartSearch calls back when a search completes. Falls back to
+        // this app's own route; set it explicitly when the app is not reachable
+        // at its APP_URL (local tunnels, for instance).
+        'webhook_url' => env('SMARTSEARCH_WEBHOOK_URL'),
     ],
 
     'hubspot' => [

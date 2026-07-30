@@ -77,9 +77,13 @@ class SmartDocService
 
     /**
      * Register a webhook SmartSearch calls back when a search completes.
+     *
+     * The callback url comes from config unless one is passed explicitly.
      */
-    public function createWebhook(string $searchId, string $callbackUrl): array
+    public function createWebhook(string $searchId, ?string $callbackUrl = null): array
     {
+        $callbackUrl ??= config('services.smartsearch.webhook_url') ?: route('webhooks.smartsearch');
+
         return $this->client->post("/v3/searches/{$searchId}/webhooks", [
             'data' => [
                 'type' => 'search-webhook',

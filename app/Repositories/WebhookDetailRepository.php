@@ -2,6 +2,7 @@
 
 namespace App\Repositories;
 
+use App\Enums\WebhookDetailStatus;
 use App\Models\WebhookDetail;
 use App\Repositories\Contracts\WebhookDetailRepositoryInterface;
 
@@ -31,5 +32,24 @@ class WebhookDetailRepository implements WebhookDetailRepositoryInterface
     public function findBySsid(string $ssid): ?WebhookDetail
     {
         return WebhookDetail::query()->where('ssid', $ssid)->latest('id')->first();
+    }
+
+    /**
+     * Record the outcome of the search an ssid belongs to.
+     *
+     * @return int the number of details updated
+     */
+    public function markStatusBySsid(string $ssid, WebhookDetailStatus $status, ?array $payload = null): int
+    {
+        // Saved through the model rather than a mass update so the status and
+        // payload casts apply; the unique ssid means this is one row anyway.
+        return WebhookDetail::query()
+            ->where('ssid', $ssid)
+            ->get()
+            ->each(fn (WebhookDetail $detail) => $detail->update([
+                'status' => $status,
+                ...($payload === null ? [] : ['payload' => $payload]),
+            ]))
+            ->count();
     }
 }

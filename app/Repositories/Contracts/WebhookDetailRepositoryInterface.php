@@ -2,6 +2,7 @@
 
 namespace App\Repositories\Contracts;
 
+use App\Enums\WebhookDetailStatus;
 use App\Models\WebhookDetail;
 
 interface WebhookDetailRepositoryInterface
@@ -22,4 +23,11 @@ interface WebhookDetailRepositoryInterface
      * Find a webhook detail by the SmartSearch search id it is waiting on.
      */
     public function findBySsid(string $ssid): ?WebhookDetail;
+
+    /**
+     * Record the outcome of the search an ssid belongs to.
+     *
+     * @return int the number of details updated
+     */
+    public function markStatusBySsid(string $ssid, WebhookDetailStatus $status, ?array $payload = null): int;
 }
