@@ -2,6 +2,8 @@
 
 namespace App\Services\SmartSearch;
 
+use stdClass;
+
 class SmartDocService
 {
     public function __construct(
@@ -103,5 +105,45 @@ class SmartDocService
                 ],
             ]
         )->json();
+    }
+
+    /**
+     * Send a search subject the link to their SmartDoc verification.
+     *
+     * @param  string  $method  sms | email
+     * @param  string  $value  the mobile number or email address to send to
+     * @param  string|null  $redirectTo  where to send the subject once they finish
+     */
+    public function sendNotification(
+        string $searchSubjectId,
+        string $method,
+        string $value,
+        ?string $redirectTo = null,
+    ): array {
+        $attributes = [
+            'method' => $method,
+            'value' => $value,
+        ];
+
+        if (filled($redirectTo)) {
+            $attributes['redirect_to'] = $redirectTo;
+        }
+
+        return $this->client->post('/v3/notifications', [
+            'data' => [
+                'type' => 'subject-notification',
+                'attributes' => $attributes,
+                'relationships' => [
+                    'subject' => [
+                        'data' => [
+                            'type' => 'search-subject',
+                            'id' => $searchSubjectId,
+                        ],
+                    ],
+                ],
+                // An empty object, not an empty array, so it encodes as {}.
+                'meta' => new stdClass,
+            ],
+        ])->json();
     }
 }

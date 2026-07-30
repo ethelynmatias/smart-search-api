@@ -391,9 +391,17 @@ class HubSpotWebhookService
         $results = [];
 
         foreach ($contacts as $contact) {
+            $properties = $contact['properties'] ?? [];
+
             $results[] = $this->runSmartDocSearch(
-                $this->smartDocData($contact['properties'] ?? []),
-                ['contactId' => $contact['id'] ?? null],
+                $this->smartDocData($properties),
+                [
+                    'contactId' => $contact['id'] ?? null,
+                    // Carried through so the completion callback can notify the
+                    // subject without fetching the contact from HubSpot again.
+                    'email' => $properties['email'] ?? null,
+                    'phone' => $properties['phone'] ?? null,
+                ],
             );
         }
 
@@ -423,6 +431,8 @@ class HubSpotWebhookService
                 'source' => 'company owner',
                 'companyId' => $company['id'] ?? null,
                 'ownerId' => $owner['id'] ?? null,
+                'email' => $owner['email'] ?? null,
+                'phone' => $company['properties']['phone'] ?? null,
             ]),
         ];
     }
@@ -464,12 +474,44 @@ class HubSpotWebhookService
         }
 
         try {
-            return is_numeric($value)
-                ? Carbon::createFromTimestampMs((int) $value)->format('Y-m-d')
-                : Carbon::parse((string) $value)->format('Y-m-d');
+            if (is_numeric($value)) {
+                return Carbon::createFromTimestampMs((int) $value)->format('Y-m-d');
+            }
+
+            return $this->normaliseSlashedDate(trim((string) $value))
+                ?? Carbon::parse((string) $value)->format('Y-m-d');
         } catch (Throwable) {
             return null;
         }
+    }
+
+    /**
+     * Normalise a slash separated date, working out which part is the day.
+     *
+     * Carbon reads slashed dates as m/d/Y, so 17/11/2004 would throw and a
+     * genuine 11/17/2004 would be read correctly by luck alone. A part above 12
+     * can only be the day, which settles most dates; where both parts could be
+     * either, d/m/Y wins, as HubSpot holds these in UK format.
+     *
+     * Returns null for anything that is not a slashed date, leaving the caller
+     * to parse it as before.
+     */
+    protected function normaliseSlashedDate(string $value): ?string
+    {
+        if (! preg_match('#^(\d{1,2})/(\d{1,2})/(\d{4})$#', $value, $matches)) {
+            return null;
+        }
+
+        [, $first, $second, $year] = array_map('intval', $matches);
+
+        // A day/month pair the other way round: 11/17/2004.
+        [$day, $month] = $second > 12 ? [$second, $first] : [$first, $second];
+
+        if (! checkdate($month, $day, $year)) {
+            return null;
+        }
+
+        return Carbon::create($year, $month, $day)->format('Y-m-d');
     }
 
     /**

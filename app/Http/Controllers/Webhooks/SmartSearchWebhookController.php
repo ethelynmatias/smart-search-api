@@ -4,16 +4,23 @@ namespace App\Http\Controllers\Webhooks;
 
 use App\Enums\WebhookDetailStatus;
 use App\Http\Controllers\Controller;
+use App\Models\WebhookDetail;
 use App\Repositories\Contracts\WebhookDetailRepositoryInterface;
+use App\Services\HubSpot\HubSpotService;
 use App\Services\LogService;
+use App\Services\SmartSearch\Exceptions\SmartSearchException;
+use App\Services\SmartSearch\SmartDocService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Illuminate\Support\Facades\Log;
 
 class SmartSearchWebhookController extends Controller
 {
     public function __construct(
         protected WebhookDetailRepositoryInterface $webhookDetails,
         protected LogService $logService,
+        protected HubSpotService $hubSpotService,
+        protected SmartDocService $smartDocService,
     ) {}
 
     /**
@@ -23,6 +30,17 @@ class SmartSearchWebhookController extends Controller
     public function handle(Request $request): Response
     {
         $payload = $request->all();
+
+        // Logged before anything is read out of it, so a callback in a shape we
+        // do not expect is still visible rather than a bare 204 in the access log.
+        $this->logService->webhook('SmartSearch: search callback received', [
+            'ip' => $request->ip(),
+            'contentType' => $request->header('Content-Type'),
+            'payload' => $payload,
+            // Falls back to the raw body when nothing parsed, which is what an
+            // unexpected content type looks like from here.
+            'raw' => blank($payload) ? $request->getContent() : null,
+        ]);
 
         $searchId = data_get($payload, 'data.id');
 
@@ -60,6 +78,95 @@ class SmartSearchWebhookController extends Controller
             'response' => $payload,
         ]);
 
+        $this->writeStatusToDeal($detail, $status);
+
+        if ($status === WebhookDetailStatus::Completed) {
+            $this->notifySubject($detail);
+        }
+
         return response()->noContent();
+    }
+
+    /**
+     * Send the subject the link to their SmartDoc verification.
+     *
+     * The address comes from the contact details stored on the webhook detail
+     * when the search was created, so HubSpot is not queried again here. Email
+     * is preferred; a subject with only a phone number is sent an SMS.
+     */
+    protected function notifySubject(WebhookDetail $detail): void
+    {
+        $email = data_get($detail->payload, 'email');
+        $phone = data_get($detail->payload, 'phone');
+
+        [$method, $value] = filled($email) ? ['email', $email] : ['sms', $phone];
+
+        if (blank($detail->search_subject_id) || blank($value)) {
+            $this->logService->forGroup($detail->group_id)->webhook('SmartSearch: cannot notify subject', [
+                'ssid' => $detail->ssid,
+                'searchSubjectId' => $detail->search_subject_id,
+                'reason' => blank($detail->search_subject_id)
+                    ? 'no search subject id on the detail'
+                    : 'no email or phone on the detail',
+            ]);
+
+            return;
+        }
+
+        try {
+            $response = $this->smartDocService->sendNotification($detail->search_subject_id, $method, $value);
+
+            $this->logService->forGroup($detail->group_id)->webhook('SmartSearch: subject notified', [
+                'ssid' => $detail->ssid,
+                'searchSubjectId' => $detail->search_subject_id,
+                'method' => $method,
+                'response' => $response,
+            ]);
+        } catch (SmartSearchException $e) {
+            Log::warning('SmartDoc subject notification failed.', [
+                'ssid' => $detail->ssid,
+                'method' => $method,
+                'status' => $e->status,
+                'error' => $e->getMessage(),
+            ]);
+
+            $this->logService->forGroup($detail->group_id)->webhook('SmartSearch: subject notification failed', [
+                'ssid' => $detail->ssid,
+                'searchSubjectId' => $detail->search_subject_id,
+                'method' => $method,
+                'status' => $e->status,
+                'error' => $e->getMessage(),
+                'errors' => $e->errors,
+            ]);
+        }
+    }
+
+    /**
+     * Mirror the search status onto the deal in HubSpot, whatever it is, so the
+     * deal reads the same as the detail rather than sitting at pending.
+     *
+     * Only the deal the search was created for can be updated, so a detail
+     * stored without one is logged and left alone.
+     */
+    protected function writeStatusToDeal(WebhookDetail $detail, WebhookDetailStatus $status): void
+    {
+        if (blank($detail->deal_id)) {
+            $this->logService->forGroup($detail->group_id)->webhook('HubSpot: no deal to write the smartdoc status to', [
+                'ssid' => $detail->ssid,
+                'status' => $status->value,
+            ]);
+
+            return;
+        }
+
+        $response = $this->hubSpotService->updateSmartDocStatus($detail->deal_id, $status->value);
+
+        $this->logService->forGroup($detail->group_id)->webhook('HubSpot: deal smartdoc status written', [
+            'dealId' => $detail->deal_id,
+            'ssid' => $detail->ssid,
+            'smartdocStatus' => $status->value,
+            // updateSmartDocStatus() logs its own failure and returns empty.
+            'written' => filled($response),
+        ]);
     }
 }
