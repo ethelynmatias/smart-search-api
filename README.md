@@ -93,39 +93,75 @@ app/
 │       └── WebhookData.php           # Parsed incoming SmartSearch webhook
 │
 ├── Enums/
-│   └── LogType.php                   # webhook | api
+│   ├── LogType.php                   # webhook | api
+│   └── WebhookDetailStatus.php       # pending | processing | completed | failed | expired
 │
 ├── Http/
 │   ├── Controllers/
 │   │   ├── LogController.php         # /logs/{token} viewer
 │   │   └── Webhooks/
-│   │       └── HubSpotWebhookController.php
+│   │       ├── HubSpotWebhookController.php      # Deal close events
+│   │       └── SmartSearchWebhookController.php  # Search result callbacks
 │   └── Requests/
 │       ├── AMLRequest.php            # AML validation
 │       └── SmartDocRequest.php       # SmartDoc validation (+ notify_method sms/email)
 │
 ├── Models/
 │   ├── Log.php                       # logs table (type, message, payload, log_group_id)
-│   └── SmartSearchSearch.php         # SmartSearch searches (search_id, type, status, result)
+│   ├── SmartSearchSearch.php         # SmartSearch searches (search_id, type, status, result)
+│   └── WebhookDetail.php             # Search awaiting a callback (ssid, deal_id, status)
 │
 ├── Repositories/
 │   ├── Contracts/
-│   │   └── LogRepositoryInterface.php
-│   └── LogRepository.php
+│   │   ├── LogRepositoryInterface.php
+│   │   └── WebhookDetailRepositoryInterface.php
+│   ├── LogRepository.php
+│   └── WebhookDetailRepository.php
 │
 └── Services/
-    ├── HubSpotWebhookService.php     # Signature check, event dispatch, deal/contact fetch
-    └── LogService.php                # Creates logs with a shared per-request log_group_id
+    ├── HubSpot/
+    │   ├── HubSpotAuthService.php    # Access token + authenticated API client
+    │   ├── HubSpotService.php        # Deal writes (smartdoc_ssid property)
+    │   └── HubSpotWebhookService.php # Signature check, event dispatch, deal/contact fetch
+    │
+    ├── LogService.php                # Creates logs with a shared per-request log_group_id
+    │
+    └── SmartSearch/
+        ├── AmlService.php            # AML searches
+        ├── AuthenticationService.php # Cached app token
+        ├── SmartDocService.php       # SmartDoc searches + result webhook registration
+        ├── SmartSearchClient.php     # Authenticated JSON:API client
+        └── Exceptions/
+            └── SmartSearchException.php
 ```
 
-Supporting files: `routes/api.php` (HubSpot endpoint), `routes/web.php` (welcome + logs), `config/services.php` (`hubspot`, `smartsearch` credentials), `config/logs.php` (logs page token), `public/css/logs.css`, `docker/nginx/default.conf`.
+Supporting files: `routes/api.php` (HubSpot + SmartSearch endpoints), `routes/web.php` (welcome + logs), `config/services.php` (`hubspot`, `smartsearch` credentials), `config/logs.php` (logs page token), `public/css/logs.css`, `docker/nginx/default.conf`.
 
 ## API Endpoints
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/api/hubspot/event` | HubSpot webhook receiver |
+| POST | `/api/hubspot/event` | HubSpot webhook receiver (signature-verified) |
+| POST | `/api/smartsearch/search` | SmartSearch search result callback |
 | GET | `/logs/{token}` | Log viewer (token from `LOGS_ACCESS_TOKEN`) |
+
+## Search Flow
+
+When a deal is closed (`closedwon` / `closedlost`) in HubSpot:
+
+1. `HubSpotWebhookController` verifies the signature and dispatches the event.
+2. `HubSpotWebhookService` fetches the deal, its contacts, and its company. With no
+   contacts on the deal, the company owner is used as the subject instead.
+3. An AML search and a SmartDoc search run per subject; each result is logged.
+4. Every created SmartDoc search is stored as a `webhook_details` row — `pending`,
+   keyed by its SmartSearch id (`ssid`) — and a result webhook is registered with
+   SmartSearch for it.
+5. When SmartSearch calls back, `SmartSearchWebhookController` matches the `ssid`,
+   updates the row's status, and logs the response into the deal's original log
+   group, so the whole deal reads as one thread at `/logs/{token}`.
+
+Searches that cannot run (missing name, address, date of birth, or sex) are recorded
+as skipped alongside the ones that did, so one incomplete contact never loses the rest.
 
 ## HubSpot Webhook
 
@@ -165,3 +201,34 @@ Notes:
 
 - The free-tier ngrok URL changes on every restart — update the URL in HubSpot each time, or reserve a static domain and run `ngrok http 8080 --domain=<your-domain>.ngrok-free.app`.
 - Inspect incoming requests at ngrok's local dashboard: [http://127.0.0.1:4040](http://127.0.0.1:4040).
+
+## SmartSearch
+
+Credentials and the search result callback URL:
+
+```dotenv
+# Sandbox; production is https://api.app.smartsearch.com
+SMARTSEARCH_BASE_URL="https://api.sandbox.app.smartsearch.com"
+SMARTSEARCH_APP_ID=your-app-id
+SMARTSEARCH_SECRET=your-secret
+SMARTSEARCH_WEBHOOK_URL=
+```
+
+`SMARTSEARCH_WEBHOOK_URL` is where SmartSearch calls back when a search completes.
+Leave it empty to use this app's own route (`/api/smartsearch/search`, built from
+`APP_URL`); set it explicitly when the app is not publicly reachable at `APP_URL` —
+locally, the same ngrok URL used for HubSpot:
+
+```dotenv
+SMARTSEARCH_WEBHOOK_URL=https://<your-subdomain>.ngrok-free.app/api/smartsearch/search
+```
+
+Run `php artisan config:clear` after editing, or a cached config will keep the old value.
+
+The app token is fetched on demand and cached for 14 minutes; no token needs storing.
+
+### HubSpot deal property
+
+Writing the SmartDoc search id back onto a deal (`HubSpotService::updateSmartDocSsid()`)
+requires a custom single-line-text property named `smartdoc_ssid` on the Deal object in
+HubSpot. Without it, the PATCH is rejected and the failure is logged.
