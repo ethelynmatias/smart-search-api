@@ -31,6 +31,7 @@ class HubSpotWebhookService
         protected SmartDocService $smartDocService,
         protected WebhookDetailRepositoryInterface $webhookDetails,
         protected HubSpotAuthService $hubSpotAuth,
+        protected HubSpotService $hubSpotService,
     ) {}
 
     /**
@@ -159,6 +160,8 @@ class HubSpotWebhookService
      */
     protected function recordSmartDocDetails(string $dealId, array $smartDoc, ?string $groupId): void
     {
+        $ssids = [];
+
         foreach ($smartDoc as $entry) {
             $result = $entry['result'] ?? null;
 
@@ -190,7 +193,36 @@ class HubSpotWebhookService
             if ($detail->wasRecentlyCreated) {
                 $this->registerSmartDocWebhook((string) $ssid, $groupId);
             }
+
+            $ssids[] = (string) $ssid;
         }
+
+        if (filled($ssids)) {
+            $this->writeSmartDocSsidsToDeal($dealId, $ssids, $groupId);
+        }
+    }
+
+    /**
+     * Write the SmartDoc search ids back onto the deal in HubSpot.
+     *
+     * A deal with several subjects creates several searches, and the deal holds
+     * one property, so the ids go on comma separated rather than the last one
+     * quietly overwriting the rest.
+     *
+     * @param  array<int, string>  $ssids
+     */
+    protected function writeSmartDocSsidsToDeal(string $dealId, array $ssids, ?string $groupId): void
+    {
+        $value = implode(',', array_unique($ssids));
+
+        $response = $this->hubSpotService->updateSmartDocSsid($dealId, $value);
+
+        $this->logService->forGroup($groupId)->webhook('HubSpot: deal smartdoc ssid written', [
+            'dealId' => $dealId,
+            'smartdocSsid' => $value,
+            // updateSmartDocSsid() logs its own failure and returns empty.
+            'written' => filled($response),
+        ]);
     }
 
     /**

@@ -12,28 +12,43 @@ class HubSpotService
 
     /**
      * Write the SmartDoc search id back onto the deal.
-     *
-     * Never throws: the ssid is already held on the webhook detail, so a
-     * write-back that fails costs the property on the deal, not the search.
      */
     public function updateSmartDocSsid(string $dealId, string $smartDocSsid): array
     {
-        $client = $this->auth->client('update deal smartdoc ssid');
+        return $this->updateDealProperties($dealId, ['smartdoc_ssid' => $smartDocSsid]);
+    }
+
+    /**
+     * Write the SmartDoc search status back onto the deal.
+     */
+    public function updateSmartDocStatus(string $dealId, string $status): array
+    {
+        return $this->updateDealProperties($dealId, ['smartdoc_status' => $status]);
+    }
+
+    /**
+     * Patch properties onto a deal.
+     *
+     * Never throws: the search and its status are already held on the webhook
+     * detail, so a write-back that fails costs the deal properties, not the
+     * record of the search.
+     */
+    protected function updateDealProperties(string $dealId, array $properties): array
+    {
+        $client = $this->auth->client('update deal properties');
 
         if (blank($client)) {
             return [];
         }
 
         $response = $client->patch("/crm/v3/objects/deals/{$dealId}", [
-            'properties' => [
-                'smartdoc_ssid' => $smartDocSsid,
-            ],
+            'properties' => $properties,
         ]);
 
         if ($response->failed()) {
-            Log::warning('Failed to write the SmartDoc ssid onto the HubSpot deal.', [
+            Log::warning('Failed to write properties onto the HubSpot deal.', [
                 'dealId' => $dealId,
-                'ssid' => $smartDocSsid,
+                'properties' => $properties,
                 'status' => $response->status(),
                 'body' => $response->json(),
             ]);
