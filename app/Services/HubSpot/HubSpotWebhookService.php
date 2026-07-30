@@ -161,6 +161,7 @@ class HubSpotWebhookService
     protected function recordSmartDocDetails(string $dealId, array $smartDoc, ?string $groupId): void
     {
         $ssids = [];
+        $statusWritten = false;
 
         foreach ($smartDoc as $entry) {
             $result = $entry['result'] ?? null;
@@ -192,6 +193,14 @@ class HubSpotWebhookService
             // have it call back twice for the same search.
             if ($detail->wasRecentlyCreated) {
                 $this->registerSmartDocWebhook((string) $ssid, $groupId);
+
+                // The deal carries one status for the whole set of searches, so
+                // it is written once however many subjects the deal has.
+                if (! $statusWritten) {
+                    $this->writeSmartDocStatusToDeal($dealId, $detail->status, $groupId);
+
+                    $statusWritten = true;
+                }
             }
 
             $ssids[] = (string) $ssid;
@@ -200,6 +209,26 @@ class HubSpotWebhookService
         if (filled($ssids)) {
             $this->writeSmartDocSsidsToDeal($dealId, $ssids, $groupId);
         }
+    }
+
+    /**
+     * Write the SmartDoc search status back onto the deal in HubSpot.
+     *
+     * At this point the searches are pending; the callback moves the deal on
+     * when SmartSearch reports the outcome.
+     */
+    protected function writeSmartDocStatusToDeal(string $dealId, ?WebhookDetailStatus $status, ?string $groupId): void
+    {
+        $value = ($status ?? WebhookDetailStatus::Pending)->value;
+
+        $response = $this->hubSpotService->updateSmartDocStatus($dealId, $value);
+
+        $this->logService->forGroup($groupId)->webhook('HubSpot: deal smartdoc status written', [
+            'dealId' => $dealId,
+            'smartdocStatus' => $value,
+            // updateSmartDocStatus() logs its own failure and returns empty.
+            'written' => filled($response),
+        ]);
     }
 
     /**
