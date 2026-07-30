@@ -84,13 +84,24 @@ class SmartDocService
     {
         $callbackUrl ??= config('services.smartsearch.webhook_url') ?: route('webhooks.smartsearch');
 
-        return $this->client->post("/v3/searches/{$searchId}/webhooks", [
-            'data' => [
-                'type' => 'search-webhook',
-                'attributes' => [
-                    'url' => $callbackUrl,
+        return $this->client->post(
+            "/v3/searches/{$searchId}/webhooks",
+            [
+                'data' => [
+                    'type' => 'search-webhook',
+                    'attributes' => [
+                        'url' => $callbackUrl,
+                    ],
+                    'relationships' => [
+                        'search' => [
+                            'data' => [
+                                'type' => 'search',
+                                'id' => $searchId,
+                            ],
+                        ],
+                    ],
                 ],
-            ],
-        ])->json();
+            ]
+        )->json();
     }
 }
