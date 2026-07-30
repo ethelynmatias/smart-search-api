@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\Webhooks;
 
 use App\Http\Controllers\Controller;
-use App\Services\HubSpotWebhookService;
+use App\Services\HubSpot\HubSpotWebhookService;
 use App\Services\LogService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;

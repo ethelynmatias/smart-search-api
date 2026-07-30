@@ -2,7 +2,7 @@
 
 namespace Tests\Unit;
 
-use App\Services\HubSpotWebhookService;
+use App\Services\HubSpot\HubSpotWebhookService;
 use App\Services\SmartSearch\AmlService;
 use App\Services\SmartSearch\Exceptions\SmartSearchException;
 use Illuminate\Http\Client\Request;

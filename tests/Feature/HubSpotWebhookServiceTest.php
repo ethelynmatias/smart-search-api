@@ -2,7 +2,7 @@
 
 namespace Tests\Feature;
 
-use App\Services\HubSpotWebhookService;
+use App\Services\HubSpot\HubSpotWebhookService;
 use Illuminate\Support\Facades\Http;
 use ReflectionMethod;
 use Tests\TestCase;

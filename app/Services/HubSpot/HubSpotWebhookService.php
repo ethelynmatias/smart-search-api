@@ -1,16 +1,15 @@
 <?php
 
-namespace App\Services;
+namespace App\Services\HubSpot;
 
 use App\Enums\WebhookDetailStatus;
 use App\Repositories\Contracts\WebhookDetailRepositoryInterface;
+use App\Services\LogService;
 use App\Services\SmartSearch\AmlService;
 use App\Services\SmartSearch\Exceptions\SmartSearchException;
 use App\Services\SmartSearch\SmartDocService;
 use Carbon\Carbon;
-use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -31,6 +30,7 @@ class HubSpotWebhookService
         protected AmlService $amlService,
         protected SmartDocService $smartDocService,
         protected WebhookDetailRepositoryInterface $webhookDetails,
+        protected HubSpotAuthService $hubSpotAuth,
     ) {}
 
     /**
@@ -460,15 +460,13 @@ class HubSpotWebhookService
      */
     protected function fetchDeal(string $dealId): array
     {
-        $token = config('services.hubspot.access_token');
+        $client = $this->hubSpotAuth->client('fetch deal');
 
-        if (blank($token)) {
-            Log::warning('HubSpot access token is not set; cannot fetch deal.', ['dealId' => $dealId]);
-
+        if (blank($client)) {
             return [];
         }
 
-        $response = $this->client($token)->get("/crm/v3/objects/deals/{$dealId}", [
+        $response = $client->get("/crm/v3/objects/deals/{$dealId}", [
             'properties' => 'dealname,amount,dealstage,pipeline,closedate,hubspot_owner_id,dealtype',
         ]);
 
@@ -493,15 +491,11 @@ class HubSpotWebhookService
      */
     protected function fetchDealContacts(string $dealId): array
     {
-        $token = config('services.hubspot.access_token');
+        $client = $this->hubSpotAuth->client('fetch deal contacts');
 
-        if (blank($token)) {
-            Log::warning('HubSpot access token is not set; cannot fetch deal contacts.', ['dealId' => $dealId]);
-
+        if (blank($client)) {
             return [];
         }
-
-        $client = $this->client($token);
 
         $associations = $client->get("/crm/v4/objects/deals/{$dealId}/associations/contacts");
 
@@ -557,15 +551,11 @@ class HubSpotWebhookService
      */
     protected function fetchDealCompany(string $dealId): array
     {
-        $token = config('services.hubspot.access_token');
+        $client = $this->hubSpotAuth->client('fetch deal company');
 
-        if (blank($token)) {
-            Log::warning('HubSpot access token is not set; cannot fetch deal company.', ['dealId' => $dealId]);
-
+        if (blank($client)) {
             return [];
         }
-
-        $client = $this->client($token);
 
         $associations = $client->get("/crm/v4/objects/deals/{$dealId}/associations/companies");
 
@@ -621,13 +611,13 @@ class HubSpotWebhookService
             return [];
         }
 
-        $token = config('services.hubspot.access_token');
+        $client = $this->hubSpotAuth->client('fetch owner');
 
-        if (blank($token)) {
+        if (blank($client)) {
             return [];
         }
 
-        $response = $this->client($token)->get("/crm/v3/owners/{$ownerId}");
+        $response = $client->get("/crm/v3/owners/{$ownerId}");
 
         if ($response->failed()) {
             Log::warning('Failed to fetch HubSpot owner.', [
@@ -646,13 +636,5 @@ class HubSpotWebhookService
             'lastName' => $response->json('lastName'),
             'userId' => $response->json('userId'),
         ];
-    }
-
-    /**
-     * Build an authenticated HubSpot API client.
-     */
-    protected function client(string $token): PendingRequest
-    {
-        return Http::withToken($token)->baseUrl('https://api.hubapi.com');
     }
 }
