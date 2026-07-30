@@ -49,20 +49,16 @@ class SmartSearchWebhookController extends Controller
 
         $updated = $this->webhookDetails->markStatusBySsid((string) $searchId, $status, $payload);
 
-        $this->logService->webhook(
-            "SmartSearch: search {$status->value}",
-            [
-                'ssid' => $searchId,
-                'searchSubjectId' => $detail->search_subject_id,
-                'dealId' => $detail->deal_id,
-                'type' => $detail->type,
-                'previousStatus' => $detail->status?->value,
-                'status' => $status->value,
-                'updated' => $updated,
-                'response' => $payload,
-            ],
-            $detail->group_id,
-        );
+        $this->logService->forGroup($detail->group_id)->webhook("SmartSearch: search {$status->value}", [
+            'ssid' => $searchId,
+            'searchSubjectId' => $detail->search_subject_id,
+            'dealId' => $detail->deal_id,
+            'type' => $detail->type,
+            'previousStatus' => $detail->status?->value,
+            'status' => $status->value,
+            'updated' => $updated,
+            'response' => $payload,
+        ]);
 
         return response()->noContent();
     }

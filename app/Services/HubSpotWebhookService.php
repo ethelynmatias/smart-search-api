@@ -170,7 +170,7 @@ class HubSpotWebhookService
 
             // Keyed on the ssid so a webhook HubSpot redelivers, or a deal that
             // closes twice, does not leave a second row waiting on one search.
-            $this->webhookDetails->firstOrCreate(
+            $detail = $this->webhookDetails->firstOrCreate(
                 [
                     'ssid' => (string) $ssid,
                     'type' => 'smartdoc',
@@ -183,6 +183,44 @@ class HubSpotWebhookService
                     'payload' => $entry,
                 ],
             );
+
+            // Only for a detail we have just created: an ssid we already held is
+            // one SmartSearch has been told about, and registering twice would
+            // have it call back twice for the same search.
+            if ($detail->wasRecentlyCreated) {
+                $this->registerSmartDocWebhook((string) $ssid, $groupId);
+            }
+        }
+    }
+
+    /**
+     * Ask SmartSearch to call us back when a SmartDoc search completes.
+     *
+     * Never throws: the detail is already stored as pending, so a registration
+     * that fails leaves a record to chase rather than losing the search.
+     */
+    protected function registerSmartDocWebhook(string $ssid, ?string $groupId): void
+    {
+        try {
+            $response = $this->smartDocService->createWebhook($ssid);
+
+            $this->logService->forGroup($groupId)->webhook('SmartSearch: smartdoc webhook registered', [
+                'ssid' => $ssid,
+                'response' => $response,
+            ]);
+        } catch (SmartSearchException $e) {
+            Log::warning('SmartDoc webhook registration failed.', [
+                'ssid' => $ssid,
+                'status' => $e->status,
+                'error' => $e->getMessage(),
+            ]);
+
+            $this->logService->forGroup($groupId)->webhook('SmartSearch: smartdoc webhook registration failed', [
+                'ssid' => $ssid,
+                'status' => $e->status,
+                'error' => $e->getMessage(),
+                'errors' => $e->errors,
+            ]);
         }
     }
 

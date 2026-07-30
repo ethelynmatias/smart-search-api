@@ -21,21 +21,37 @@ class LogService
     }
 
     /**
-     * Create a log entry.
+     * Log against an existing group rather than this process's own.
      *
-     * @param  string|null  $logGroupId  join an existing group instead of this process's own
+     * Returns a copy, so logging into another group never moves the group the
+     * rest of the process is writing to. A blank group id changes nothing.
      */
-    public function create(LogType $type, ?string $message = null, ?array $payload = null, ?string $logGroupId = null): Log
+    public function forGroup(?string $logGroupId): self
     {
-        return $this->logs->create($type, $message, $payload, $logGroupId ?? $this->logGroupId);
+        if (blank($logGroupId)) {
+            return $this;
+        }
+
+        $clone = clone $this;
+        $clone->logGroupId = $logGroupId;
+
+        return $clone;
+    }
+
+    /**
+     * Create a log entry.
+     */
+    public function create(LogType $type, ?string $message = null, ?array $payload = null): Log
+    {
+        return $this->logs->create($type, $message, $payload, $this->logGroupId);
     }
 
     /**
      * Create a webhook log entry.
      */
-    public function webhook(?string $message = null, ?array $payload = null, ?string $logGroupId = null): Log
+    public function webhook(?string $message = null, ?array $payload = null): Log
     {
-        return $this->create(LogType::Webhook, $message, $payload, $logGroupId);
+        return $this->create(LogType::Webhook, $message, $payload);
     }
 
     /**
