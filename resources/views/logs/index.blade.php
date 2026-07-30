@@ -4,13 +4,19 @@
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
 
+        {{-- The url carries an access token and the payloads hold personal data,
+             so this page is kept out of search engines and off referrers. --}}
+        <meta name="robots" content="noindex, nofollow, noarchive, nosnippet, noimageindex">
+        <meta name="referrer" content="no-referrer">
+
         <title>Logs — {{ config('app.name', 'Smart Search API') }}</title>
 
         <link rel="stylesheet" href="{{ asset('css/logs.css') }}">
     </head>
     <body>
-        {{-- Payloads are only worth the room once a single group is in view. --}}
-        @php($showPayload = filled(request('group')))
+        {{-- Payloads are only worth the room once a single group, or a search
+             narrow enough to have found something, is in view. --}}
+        @php($showPayload = filled(request('group')) || filled($ssid))
 
         <div class="container">
             <header>
@@ -24,7 +30,35 @@
                         >{{ ucfirst($type->value) }}</a>
                     @endforeach
                 </nav>
+
+                <form class="search" method="GET" action="{{ route('logs.index', ['token' => $token]) }}">
+                    {{-- The type filter is kept while searching; a group is not,
+                         since a search spans whichever groups hold the ssid. --}}
+                    @if (request('type'))
+                        <input type="hidden" name="type" value="{{ request('type') }}">
+                    @endif
+
+                    <input
+                        type="search"
+                        name="ssid"
+                        value="{{ $ssid }}"
+                        placeholder="Search by ssid, subject id or deal id"
+                        autocomplete="off"
+                    >
+                    <button type="submit">Search</button>
+
+                    @if (filled($ssid))
+                        <a class="clear" href="{{ route('logs.index', array_filter(['token' => $token, 'type' => request('type')])) }}">&times; clear</a>
+                    @endif
+                </form>
             </header>
+
+            @if (filled($ssid))
+                <div class="group-filter">
+                    Searching payloads for <code>{{ $ssid }}</code>
+                    <span class="group-count">{{ $logs->total() }} {{ Str::plural('result', $logs->total()) }}</span>
+                </div>
+            @endif
 
             @if (request('group'))
                 <div class="group-filter">
@@ -100,7 +134,13 @@
                             @endif
                         @empty
                             <tr>
-                                <td colspan="6" class="empty">No logs recorded yet.</td>
+                                <td colspan="6" class="empty">
+                                    @if (filled($ssid))
+                                        Nothing found for <code>{{ $ssid }}</code>.
+                                    @else
+                                        No logs recorded yet.
+                                    @endif
+                                </td>
                             </tr>
                         @endforelse
                     </tbody>

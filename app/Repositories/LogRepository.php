@@ -28,13 +28,22 @@ class LogRepository implements LogRepositoryInterface
      * Without a group filter, only the latest record of each group is shown,
      * with a `group_count` of how many records the group holds.
      */
-    public function paginate(?LogType $type = null, ?string $logGroupId = null, int $perPage = 25): LengthAwarePaginator
+    public function paginate(?LogType $type = null, ?string $logGroupId = null, int $perPage = 25, ?string $search = null): LengthAwarePaginator
     {
         return Log::query()
             ->select('logs.*')
             ->when($type, fn ($query, $type) => $query->where('type', $type))
             ->when($logGroupId, fn ($query, $logGroupId) => $query->where('log_group_id', $logGroupId))
-            ->when(! $logGroupId, function ($query) {
+            // An ssid appears in the payload under several keys — ssid on our own
+            // writes, data.id in a SmartSearch response — so the search runs over
+            // the whole payload rather than one path.
+            ->when($search, fn ($query, $search) => $query->where(
+                'payload',
+                'like',
+                '%'.addcslashes($search, '%_\\').'%',
+            ))
+            // A search wants every matching line, the same as a group view does.
+            ->when(! $logGroupId && ! $search, function ($query) {
                 $query
                     ->where(function ($query) {
                         $query

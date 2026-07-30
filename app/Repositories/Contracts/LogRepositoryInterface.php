@@ -15,6 +15,8 @@ interface LogRepositoryInterface
 
     /**
      * Paginate logs, newest first, optionally filtered by type and/or group.
+     *
+     * @param  string|null  $search  matched against the payload, for finding an ssid
      */
-    public function paginate(?LogType $type = null, ?string $logGroupId = null, int $perPage = 25): LengthAwarePaginator;
+    public function paginate(?LogType $type = null, ?string $logGroupId = null, int $perPage = 25, ?string $search = null): LengthAwarePaginator;
 }

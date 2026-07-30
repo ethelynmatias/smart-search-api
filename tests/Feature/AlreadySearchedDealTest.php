@@ -1,0 +1,100 @@
+<?php
+
+namespace Tests\Feature;
+
+use App\Models\Log as LogModel;
+use App\Services\HubSpot\HubSpotWebhookService;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Http;
+use ReflectionMethod;
+use Tests\TestCase;
+
+class AlreadySearchedDealTest extends TestCase
+{
+    use RefreshDatabase;
+
+    protected string $dealId = '58338329725';
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        config(['services.hubspot.access_token' => 'test-token']);
+    }
+
+    /**
+     * Fake HubSpot with a deal carrying the given properties, and answer every
+     * other call with an empty 200.
+     */
+    protected function fakeDeal(array $properties): void
+    {
+        Http::fake([
+            "*/crm/v3/objects/deals/{$this->dealId}?*" => Http::response([
+                'id' => $this->dealId,
+                'properties' => ['dealname' => 'cdeal', 'dealstage' => 'closedlost', ...$properties],
+            ]),
+            '*' => Http::response([]),
+        ]);
+    }
+
+    protected function handle(): void
+    {
+        $service = app(HubSpotWebhookService::class);
+
+        (new ReflectionMethod($service, 'handleDealPropertyChange'))->invoke($service, [
+            'subscriptionType' => 'deal.propertyChange',
+            'objectId' => (int) $this->dealId,
+            'propertyName' => 'dealstage',
+            'propertyValue' => 'closedlost',
+        ]);
+    }
+
+    public function test_a_deal_with_no_search_properties_is_processed(): void
+    {
+        $this->fakeDeal([]);
+
+        $this->handle();
+
+        $this->assertSame(1, LogModel::where('message', 'HubSpot: deal closedlost contacts')->count());
+    }
+
+    public function test_a_deal_that_already_holds_a_smartdoc_ssid_is_skipped(): void
+    {
+        $this->fakeDeal(['smartdoc_ssid' => '100347689']);
+
+        $this->handle();
+
+        $this->assertSame(0, LogModel::where('message', 'HubSpot: deal closedlost contacts')->count());
+    }
+
+    public function test_a_deal_that_already_holds_a_smartdoc_status_is_skipped(): void
+    {
+        $this->fakeDeal(['smartdoc_status' => 'pending']);
+
+        $this->handle();
+
+        $this->assertSame(0, LogModel::where('message', 'HubSpot: deal closedlost contacts')->count());
+    }
+
+    public function test_a_deal_that_already_holds_an_aml_ssid_is_skipped(): void
+    {
+        $this->fakeDeal(['smartsearch_uk_individual_ssid' => '100347688']);
+
+        $this->handle();
+
+        $this->assertSame(0, LogModel::where('message', 'HubSpot: deal closedlost contacts')->count());
+    }
+
+    public function test_empty_search_properties_do_not_count_as_searched(): void
+    {
+        $this->fakeDeal([
+            'smartdoc_ssid' => null,
+            'smartdoc_status' => '',
+            'smartsearch_uk_individual_ssid' => null,
+        ]);
+
+        $this->handle();
+
+        $this->assertSame(1, LogModel::where('message', 'HubSpot: deal closedlost contacts')->count());
+    }
+}

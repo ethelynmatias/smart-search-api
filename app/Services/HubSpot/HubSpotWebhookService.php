@@ -10,7 +10,6 @@ use App\Services\SmartSearch\Exceptions\SmartSearchException;
 use App\Services\SmartSearch\SmartDocService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -25,6 +24,12 @@ class HubSpotWebhookService
      * Contact fields the SmartDoc verification cannot be created without.
      */
     protected const SMARTDOC_REQUIRED_FIELDS = ['first_name', 'last_name', 'building', 'town', 'postcode', 'date_of_birth', 'sex'];
+
+    /**
+     * Deal properties this service writes its search results to. Any of them
+     * holding a value means the deal has been searched already.
+     */
+    protected const SEARCH_PROPERTIES = ['smartdoc_ssid', 'smartdoc_status', 'smartsearch_uk_individual_ssid'];
 
     public function __construct(
         protected LogService $logService,
@@ -101,21 +106,22 @@ class HubSpotWebhookService
             return;
         }
 
-        // HubSpot sends a propertyChange event per property and redelivers on
-        // its own schedule, so one deal closing arrives here several times. The
-        // first delivery claims the deal for the day; the rest stop here, before
-        // any search is run, any deal property is written or any log is stored.
-        if (! $this->claimDealEvent((string) $dealId, $value)) {
-            Log::debug('Duplicate HubSpot deal event skipped.', [
+        $deal = $this->fetchDeal((string) $dealId);
+
+        // The deal itself records whether it has been searched. HubSpot sends an
+        // event per property and redelivers on its own schedule, so without this
+        // one closing deal runs the searches and rewrites the deal repeatedly.
+        if (filled($searched = $this->searchPropertiesOn($deal))) {
+            Log::debug('HubSpot deal already searched; skipping.', [
                 'dealId' => $dealId,
                 'propertyName' => $event['propertyName'] ?? null,
                 'propertyValue' => $value,
+                'properties' => $searched,
             ]);
 
             return;
         }
 
-        $deal = $this->fetchDeal((string) $dealId);
         $contacts = $this->fetchDealContacts((string) $dealId);
         $company = $this->fetchDealCompany((string) $dealId);
 
@@ -334,19 +340,21 @@ class HubSpotWebhookService
     }
 
     /**
-     * Claim a deal at a property value for the rest of the day.
+     * The search properties already filled in on a deal, keyed by property.
      *
-     * True for the first caller, false for every one after it. Cache::add is
-     * atomic, so two deliveries arriving at once cannot both claim it — which a
-     * read-then-write check against the logs could not guarantee.
+     * Empty for a deal that has not been searched, which is also what a deal we
+     * could not fetch looks like — better to search twice than not at all.
+     *
+     * @return array<string, string>
      */
-    protected function claimDealEvent(string $dealId, string $value): bool
+    protected function searchPropertiesOn(array $deal): array
     {
-        return Cache::add(
-            "hubspot:deal:{$dealId}:{$value}",
-            now()->toDateTimeString(),
-            now()->endOfDay(),
-        );
+        $properties = $deal['properties'] ?? [];
+
+        return collect(self::SEARCH_PROPERTIES)
+            ->mapWithKeys(fn (string $property) => [$property => $properties[$property] ?? null])
+            ->filter(fn ($value) => filled($value))
+            ->all();
     }
 
     /**
@@ -634,7 +642,10 @@ class HubSpotWebhookService
         }
 
         $response = $client->get("/crm/v3/objects/deals/{$dealId}", [
-            'properties' => 'dealname,amount,dealstage,pipeline,closedate,hubspot_owner_id,dealtype',
+            // The smartdoc/smartsearch properties are what we wrote on a previous
+            // run; they are read back to tell an already searched deal apart.
+            'properties' => 'dealname,amount,dealstage,pipeline,closedate,hubspot_owner_id,dealtype,'
+                .implode(',', self::SEARCH_PROPERTIES),
         ]);
 
         if ($response->failed()) {
