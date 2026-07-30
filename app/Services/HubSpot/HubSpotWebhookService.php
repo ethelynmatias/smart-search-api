@@ -124,12 +124,13 @@ class HubSpotWebhookService
             /*$log->update([
                 'payload' => [...$log->payload, 'aml' => $aml],
             ]);*/
-            $this->logService->webhook("HubSpot: deal {$value} aml", [
+            $amlLog = $this->logService->webhook("HubSpot: deal {$value} aml", [
                 'dealId' => $dealId,
                 'propertyValue' => $value,
                 'aml' => $aml,
             ]);
 
+            $this->writeAmlSsidsToDeal((string) $dealId, $aml, $amlLog->log_group_id);
         }
 
         // SmartDoc runs off the same subjects. It lands on its own log line so
@@ -209,6 +210,38 @@ class HubSpotWebhookService
         if (filled($ssids)) {
             $this->writeSmartDocSsidsToDeal($dealId, $ssids, $groupId);
         }
+    }
+
+    /**
+     * Write the UK individual AML search ids back onto the deal in HubSpot.
+     *
+     * Subjects that were skipped or errored never reached SmartSearch and carry
+     * no id, so they contribute nothing. As with SmartDoc, a deal holds one
+     * property, so several subjects go on comma separated.
+     */
+    protected function writeAmlSsidsToDeal(string $dealId, array $aml, ?string $groupId): void
+    {
+        $ssids = collect($aml)
+            ->map(fn (array $entry) => data_get($entry, 'result.data.id'))
+            ->filter()
+            ->map(fn ($ssid) => (string) $ssid)
+            ->unique()
+            ->values();
+
+        if ($ssids->isEmpty()) {
+            return;
+        }
+
+        $value = $ssids->implode(',');
+
+        $response = $this->hubSpotService->updateSmartSearchUkIndividualSsid($dealId, $value);
+
+        $this->logService->forGroup($groupId)->webhook('HubSpot: deal aml ssid written', [
+            'dealId' => $dealId,
+            'smartSearchUkIndividualSsid' => $value,
+            // updateSmartSearchUkIndividualSsid() logs its own failure and returns empty.
+            'written' => filled($response),
+        ]);
     }
 
     /**
