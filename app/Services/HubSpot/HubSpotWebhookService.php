@@ -85,12 +85,31 @@ class HubSpotWebhookService
     {
         $type = $event['subscriptionType'] ?? 'unknown';
 
-        $this->logService->webhook("HubSpot: {$type}", $event);
+        if ($this->isActionable($event)) {
+            $this->logService->webhook("HubSpot: {$type}", $event);
+        }
 
         match ($type) {
             'deal.propertyChange' => $this->handleDealPropertyChange($event),
             default => Log::debug('Unhandled HubSpot webhook event', ['type' => $type]),
         };
+    }
+
+    /**
+     * Whether an event is one this app acts on, and so worth a log line.
+     *
+     * Only deal.propertyChange is filtered: the searches are triggered by the
+     * checkbox properties rather than the deal stage, so a change to any other
+     * property, or a checkbox being cleared, is nothing to record.
+     */
+    protected function isActionable(array $event): bool
+    {
+        if (($event['subscriptionType'] ?? null) !== 'deal.propertyChange') {
+            return true;
+        }
+
+        return in_array($event['propertyName'] ?? null, array_keys(self::SEARCH_PROPERTIES), true)
+            && in_array($event['propertyValue'] ?? null, ['true', true], true);
     }
 
     /**
@@ -102,13 +121,7 @@ class HubSpotWebhookService
         $property = $event['propertyName'] ?? null;
         $value = $event['propertyValue'] ?? null;
 
-        // The searches are now triggered by the checkbox properties rather than
-        // the deal stage: either one being ticked runs the deal.
-        if (! in_array($property, ['ss_smartdoc', 'ss_individual_uk'], true)) {
-            return;
-        }
-
-        if (! in_array($value, ['true', true], true)) {
+        if (! $this->isActionable($event)) {
             return;
         }
 
