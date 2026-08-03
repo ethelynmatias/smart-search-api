@@ -100,8 +100,9 @@ app/
 │   ├── Controllers/
 │   │   ├── LogController.php         # /logs/{token} viewer
 │   │   └── Webhooks/
-│   │       ├── HubSpotWebhookController.php      # Deal close events
-│   │       └── SmartSearchWebhookController.php  # Search result callbacks
+│   │       ├── HubSpotWebhookController.php      # Deal property change events
+│   │       └── SmartSearchWebhookController.php  # Search result callbacks (status,
+│   │                                             # subject notification, request date)
 │   └── Requests/
 │       ├── AMLRequest.php            # AML validation
 │       └── SmartDocRequest.php       # SmartDoc validation (+ notify_method sms/email)
@@ -121,8 +122,8 @@ app/
 └── Services/
     ├── HubSpot/
     │   ├── HubSpotAuthService.php    # Access token + authenticated API client
-    │   ├── HubSpotService.php        # Deal writes (smartdoc_ssid property)
-    │   └── HubSpotWebhookService.php # Signature check, event dispatch, deal/contact fetch
+    │   ├── HubSpotService.php        # Deal property writes (ssids, status, request dates)
+    │   └── HubSpotWebhookService.php # Signature check, event dispatch, searches, deal write-back
     │
     ├── LogService.php                # Creates logs with a shared per-request log_group_id
     │
@@ -147,18 +148,35 @@ Supporting files: `routes/api.php` (HubSpot + SmartSearch endpoints), `routes/we
 
 ## Search Flow
 
-When a deal is closed (`closedwon` / `closedlost`) in HubSpot:
+Searches are triggered by two checkbox properties on the deal, not by the deal stage.
+Ticking either one runs that search; both can run on the same deal.
 
-1. `HubSpotWebhookController` verifies the signature and dispatches the event.
-2. `HubSpotWebhookService` fetches the deal, its contacts, and its company. With no
-   contacts on the deal, the company owner is used as the subject instead.
-3. An AML search and a SmartDoc search run per subject; each result is logged.
-4. Every created SmartDoc search is stored as a `webhook_details` row — `pending`,
-   keyed by its SmartSearch id (`ssid`) — and a result webhook is registered with
-   SmartSearch for it.
-5. When SmartSearch calls back, `SmartSearchWebhookController` matches the `ssid`,
-   updates the row's status, and logs the response into the deal's original log
-   group, so the whole deal reads as one thread at `/logs/{token}`.
+| Checkbox           | Runs                          | Writes back                                                        |
+|--------------------|-------------------------------|--------------------------------------------------------------------|
+| `ss_individual_uk` | UK individual AML search      | `smartsearch_uk_individual_ssid`, `uk_individual_request_date`      |
+| `ss_smartdoc`      | SmartDoc document verification | `smartdoc_ssid`, `smartdoc_status`, `smartdoc_request_date`         |
+
+1. `HubSpotWebhookController` verifies the signature and dispatches the event;
+   `HubSpotWebhookService::handleDealPropertyChange()` ignores anything that is not one
+   of the two checkboxes being set to `true`.
+2. The deal is fetched and checked for that checkbox's own result properties. Any of
+   them already holding a value means the search has run, and the event is skipped —
+   HubSpot redelivers on its own schedule, so without this one deal searches repeatedly.
+3. The deal's contacts and company are fetched. With no contacts on the deal, the
+   company owner is used as the subject instead, using the company's own address.
+4. **AML** (`ss_individual_uk`): one search per subject. The resulting ssids go onto the
+   deal comma separated, and the `created_at` from the first search's meta is written as
+   the request date.
+5. **SmartDoc** (`ss_smartdoc`): one search per subject. Each is stored as a
+   `webhook_details` row — `pending`, keyed by its SmartSearch id (`ssid`) — a result
+   webhook is registered with SmartSearch for it, and the ssids and status go onto the deal.
+6. When SmartSearch calls back, `SmartSearchWebhookController` matches the `ssid`, updates
+   the row's status, and mirrors that status onto the deal. On `completed` it also sends
+   the subject their verification link (email preferred, SMS otherwise, from the contact
+   details stored on the detail) and writes the search's `created_at` as the request date.
+
+Every step logs into the deal's original log group, so the whole deal reads as one thread
+at `/logs/{token}`.
 
 Searches that cannot run (missing name, address, date of birth, or sex) are recorded
 as skipped alongside the ones that did, so one incomplete contact never loses the rest.
@@ -227,8 +245,22 @@ Run `php artisan config:clear` after editing, or a cached config will keep the o
 
 The app token is fetched on demand and cached for 14 minutes; no token needs storing.
 
-### HubSpot deal property
+### HubSpot deal properties
 
-Writing the SmartDoc search id back onto a deal (`HubSpotService::updateSmartDocSsid()`)
-requires a custom single-line-text property named `smartdoc_ssid` on the Deal object in
-HubSpot. Without it, the PATCH is rejected and the failure is logged.
+The Deal object needs these custom properties. The two checkboxes trigger the searches;
+the rest are what `HubSpotService` writes back. A property that does not exist has its
+PATCH rejected with `PROPERTY_DOESNT_EXIST`, logged as a warning — the search itself is
+unaffected, so the result lives on the webhook detail either way.
+
+| Property                        | Type              | Written by                            |
+|---------------------------------|-------------------|---------------------------------------|
+| `ss_individual_uk`              | Checkbox          | — (trigger)                           |
+| `ss_smartdoc`                   | Checkbox          | — (trigger)                           |
+| `smartsearch_uk_individual_ssid`| Single-line text  | `updateSmartSearchUkIndividualSsid()` |
+| `uk_individual_request_date`    | Single-line text  | `updateUkIndividualRequestDate()`     |
+| `smartdoc_ssid`                 | Single-line text  | `updateSmartDocSsid()`                |
+| `smartdoc_status`               | Single-line text  | `updateSmartDocStatus()`              |
+| `smartdoc_request_date`         | Single-line text  | `updateSmartDocRequestDate()`         |
+
+Request dates are written as `Y-m-d` in UTC, taken from the `created_at` SmartSearch
+returns on the search rather than the time the write happens.
