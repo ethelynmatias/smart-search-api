@@ -10,6 +10,7 @@ use App\Services\HubSpot\HubSpotService;
 use App\Services\LogService;
 use App\Services\SmartSearch\Exceptions\SmartSearchException;
 use App\Services\SmartSearch\SmartDocService;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Log;
@@ -31,14 +32,9 @@ class SmartSearchWebhookController extends Controller
     {
         $payload = $request->all();
 
-        // Logged before anything is read out of it, so a callback in a shape we
-        // do not expect is still visible rather than a bare 204 in the access log.
         $this->logService->webhook('SmartSearch: search callback received', [
             'ip' => $request->ip(),
             'contentType' => $request->header('Content-Type'),
-            'payload' => $payload,
-            // Falls back to the raw body when nothing parsed, which is what an
-            // unexpected content type looks like from here.
             'raw' => blank($payload) ? $request->getContent() : null,
         ]);
 
@@ -82,18 +78,12 @@ class SmartSearchWebhookController extends Controller
 
         if ($status === WebhookDetailStatus::Completed) {
             $this->notifySubject($detail);
+            $this->writeRequestDateToDeal($detail, $payload);
         }
 
         return response()->noContent();
     }
 
-    /**
-     * Send the subject the link to their SmartDoc verification.
-     *
-     * The address comes from the contact details stored on the webhook detail
-     * when the search was created, so HubSpot is not queried again here. Email
-     * is preferred; a subject with only a phone number is sent an SMS.
-     */
     protected function notifySubject(WebhookDetail $detail): void
     {
         $email = data_get($detail->payload, 'email');
@@ -141,13 +131,29 @@ class SmartSearchWebhookController extends Controller
         }
     }
 
-    /**
-     * Mirror the search status onto the deal in HubSpot, whatever it is, so the
-     * deal reads the same as the detail rather than sitting at pending.
-     *
-     * Only the deal the search was created for can be updated, so a detail
-     * stored without one is logged and left alone.
-     */
+    protected function writeRequestDateToDeal(WebhookDetail $detail, array $payload): void
+    {
+        $createdAt = data_get($payload, 'data.meta.created_at')
+            ?? data_get($payload, 'meta.created_at');
+
+        if ($detail->type !== 'smartdoc' || blank($detail->deal_id) || blank($createdAt)) {
+            return;
+        }
+
+        $date = Carbon::parse($createdAt);
+
+        $response = $this->hubSpotService->updateSmartDocRequestDate($detail->deal_id, $date);
+
+        $this->logService->forGroup($detail->group_id)->webhook('HubSpot: deal smartdoc request date written', [
+            'dealId' => $detail->deal_id,
+            'ssid' => $detail->ssid,
+            'createdAt' => $createdAt,
+            'requestDate' => $date->utc()->toDateString(),
+            // updateSmartDocRequestDate() logs its own failure and returns empty.
+            'written' => filled($response),
+        ]);
+    }
+
     protected function writeStatusToDeal(WebhookDetail $detail, WebhookDetailStatus $status): void
     {
         if (blank($detail->deal_id)) {

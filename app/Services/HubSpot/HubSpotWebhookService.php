@@ -120,9 +120,6 @@ class HubSpotWebhookService
 
         $deal = $this->fetchDeal((string) $dealId);
 
-        // The deal itself records whether it has been searched. HubSpot sends an
-        // event per property and redelivers on its own schedule, so without this
-        // one closing deal runs the searches and rewrites the deal repeatedly.
         if (filled($searched = $this->searchPropertiesOn($deal, $property))) {
             Log::debug('HubSpot deal already searched; skipping.', [
                 'dealId' => $dealId,
@@ -146,9 +143,6 @@ class HubSpotWebhookService
             'company' => $company,
         ]);
 
-        // AML belongs to the UK individual checkbox only; ss_smartdoc skips it.
-        // Contacts are the preferred AML subjects; with none on the deal we
-        // fall back to the company owner, using the company's own address.
         $aml = $property === 'ss_individual_uk'
             ? (filled($contacts)
                 ? $this->runAmlSearches($contacts)
@@ -167,6 +161,7 @@ class HubSpotWebhookService
             ]);
 
             $this->writeAmlSsidsToDeal((string) $dealId, $aml, $amlLog->log_group_id);
+            $this->writeUkIndividualRequestDateToDeal((string) $dealId, $aml, $amlLog->log_group_id);
         }
 
         // SmartDoc belongs to its own checkbox and runs off the same subjects.
@@ -193,9 +188,6 @@ class HubSpotWebhookService
     /**
      * Persist one pending webhook detail per created SmartDoc search, so the
      * result callback can be matched back to its deal by ssid.
-     *
-     * Entries that were skipped or errored never reached SmartSearch and carry
-     * no ssid, so there is nothing to wait on and they are not recorded.
      */
     protected function recordSmartDocDetails(string $dealId, array $smartDoc, ?string $groupId): void
     {
@@ -227,9 +219,6 @@ class HubSpotWebhookService
                 ],
             );
 
-            // Only for a detail we have just created: an ssid we already held is
-            // one SmartSearch has been told about, and registering twice would
-            // have it call back twice for the same search.
             if ($detail->wasRecentlyCreated) {
                 $this->registerSmartDocWebhook((string) $ssid, $groupId);
 
@@ -252,10 +241,6 @@ class HubSpotWebhookService
 
     /**
      * Write the UK individual AML search ids back onto the deal in HubSpot.
-     *
-     * Subjects that were skipped or errored never reached SmartSearch and carry
-     * no id, so they contribute nothing. As with SmartDoc, a deal holds one
-     * property, so several subjects go on comma separated.
      */
     protected function writeAmlSsidsToDeal(string $dealId, array $aml, ?string $groupId): void
     {
@@ -283,10 +268,34 @@ class HubSpotWebhookService
     }
 
     /**
+     * Stamp the date the AML searches were created onto the deal.
+     */
+    protected function writeUkIndividualRequestDateToDeal(string $dealId, array $aml, ?string $groupId): void
+    {
+        $createdAt = collect($aml)
+            ->map(fn (array $entry) => data_get($entry, 'result.data.meta.created_at'))
+            ->filter()
+            ->first();
+
+        if (blank($createdAt)) {
+            return;
+        }
+
+        $date = Carbon::parse($createdAt);
+
+        $response = $this->hubSpotService->updateUkIndividualRequestDate($dealId, $date);
+
+        $this->logService->forGroup($groupId)->webhook('HubSpot: deal aml request date written', [
+            'dealId' => $dealId,
+            'createdAt' => $createdAt,
+            'ukIndividualRequestDate' => $date->utc()->toDateString(),
+            // updateUkIndividualRequestDate() logs its own failure and returns empty.
+            'written' => filled($response),
+        ]);
+    }
+
+    /**
      * Write the SmartDoc search status back onto the deal in HubSpot.
-     *
-     * At this point the searches are pending; the callback moves the deal on
-     * when SmartSearch reports the outcome.
      */
     protected function writeSmartDocStatusToDeal(string $dealId, ?WebhookDetailStatus $status, ?string $groupId): void
     {
@@ -664,7 +673,7 @@ class HubSpotWebhookService
         $response = $client->get("/crm/v3/objects/deals/{$dealId}", [
             // The smartdoc/smartsearch properties are what we wrote on a previous
             // run; they are read back to tell an already searched deal apart.
-            'properties' => 'dealname,amount,dealstage,pipeline,closedate,hubspot_owner_id,dealtype,'
+            'properties' => 'dealname,amount,dealstage,pipeline,closedate,createdate,hubspot_owner_id,dealtype,'
                 .implode(',', array_merge(...array_values(self::SEARCH_PROPERTIES))),
         ]);
 

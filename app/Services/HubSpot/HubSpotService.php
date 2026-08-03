@@ -2,6 +2,7 @@
 
 namespace App\Services\HubSpot;
 
+use Carbon\Carbon;
 use Illuminate\Support\Facades\Log;
 
 class HubSpotService
@@ -32,6 +33,35 @@ class HubSpotService
     public function updateSmartSearchUkIndividualSsid(string $dealId, string $ssid): array
     {
         return $this->updateDealProperties($dealId, ['smartsearch_uk_individual_ssid' => $ssid]);
+    }
+
+    /**
+     * Stamp the date the SmartDoc search was requested onto the deal.
+     */
+    public function updateSmartDocRequestDate(string $dealId, ?Carbon $date = null): array
+    {
+        return $this->updateDealProperties($dealId, [
+            'smartdoc_request_date' => $this->dateProperty($date),
+        ]);
+    }
+
+    /**
+     * Stamp the date the UK individual AML search was requested onto the deal.
+     */
+    public function updateUkIndividualRequestDate(string $dealId, ?Carbon $date = null): array
+    {
+        return $this->updateDealProperties($dealId, [
+            'uk_individual_request_date' => $this->dateProperty($date),
+        ]);
+    }
+
+    /**
+     * HubSpot date properties are whole days held at midnight UTC, so anything
+     * with a time on it is rejected unless the time is stripped first.
+     */
+    protected function dateProperty(?Carbon $date): string
+    {
+        return ($date ?? now())->utc()->format('Y-m-d');
     }
 
     /**
