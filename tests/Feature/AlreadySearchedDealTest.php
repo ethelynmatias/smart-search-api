@@ -44,8 +44,8 @@ class AlreadySearchedDealTest extends TestCase
         (new ReflectionMethod($service, 'handleDealPropertyChange'))->invoke($service, [
             'subscriptionType' => 'deal.propertyChange',
             'objectId' => (int) $this->dealId,
-            'propertyName' => 'dealstage',
-            'propertyValue' => 'closedlost',
+            'propertyName' => 'ss_smartdoc',
+            'propertyValue' => 'true',
         ]);
     }
 
@@ -55,7 +55,7 @@ class AlreadySearchedDealTest extends TestCase
 
         $this->handle();
 
-        $this->assertSame(1, LogModel::where('message', 'HubSpot: deal closedlost contacts')->count());
+        $this->assertSame(1, LogModel::where('message', 'HubSpot: deal ss_smartdoc contacts')->count());
     }
 
     public function test_a_deal_that_already_holds_a_smartdoc_ssid_is_skipped(): void
@@ -64,7 +64,7 @@ class AlreadySearchedDealTest extends TestCase
 
         $this->handle();
 
-        $this->assertSame(0, LogModel::where('message', 'HubSpot: deal closedlost contacts')->count());
+        $this->assertSame(0, LogModel::where('message', 'HubSpot: deal ss_smartdoc contacts')->count());
     }
 
     public function test_a_deal_that_already_holds_a_smartdoc_status_is_skipped(): void
@@ -73,7 +73,7 @@ class AlreadySearchedDealTest extends TestCase
 
         $this->handle();
 
-        $this->assertSame(0, LogModel::where('message', 'HubSpot: deal closedlost contacts')->count());
+        $this->assertSame(0, LogModel::where('message', 'HubSpot: deal ss_smartdoc contacts')->count());
     }
 
     public function test_a_deal_that_already_holds_an_aml_ssid_is_skipped(): void
@@ -82,7 +82,7 @@ class AlreadySearchedDealTest extends TestCase
 
         $this->handle();
 
-        $this->assertSame(0, LogModel::where('message', 'HubSpot: deal closedlost contacts')->count());
+        $this->assertSame(0, LogModel::where('message', 'HubSpot: deal ss_smartdoc contacts')->count());
     }
 
     public function test_empty_search_properties_do_not_count_as_searched(): void
@@ -95,6 +95,6 @@ class AlreadySearchedDealTest extends TestCase
 
         $this->handle();
 
-        $this->assertSame(1, LogModel::where('message', 'HubSpot: deal closedlost contacts')->count());
+        $this->assertSame(1, LogModel::where('message', 'HubSpot: deal ss_smartdoc contacts')->count());
     }
 }

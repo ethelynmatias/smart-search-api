@@ -89,14 +89,21 @@ class HubSpotWebhookService
     }
 
     /**
-     * Handle a deal property change. When a deal is closed (won or lost),
-     * fetch its associated contacts and log their fields.
+     * Handle a deal property change. When ss_smartdoc or ss_individual_uk is
+     * ticked, fetch its associated contacts and log their fields.
      */
     protected function handleDealPropertyChange(array $event): void
     {
+        $property = $event['propertyName'] ?? null;
         $value = $event['propertyValue'] ?? null;
 
-        if (! in_array($value, ['closedwon', 'closedlost'], true)) {
+        // The searches are now triggered by the checkbox properties rather than
+        // the deal stage: either one being ticked runs the deal.
+        if (! in_array($property, ['ss_smartdoc', 'ss_individual_uk'], true)) {
+            return;
+        }
+
+        if (! in_array($value, ['true', true], true)) {
             return;
         }
 
@@ -114,7 +121,7 @@ class HubSpotWebhookService
         if (filled($searched = $this->searchPropertiesOn($deal))) {
             Log::debug('HubSpot deal already searched; skipping.', [
                 'dealId' => $dealId,
-                'propertyName' => $event['propertyName'] ?? null,
+                'propertyName' => $property,
                 'propertyValue' => $value,
                 'properties' => $searched,
             ]);
@@ -125,48 +132,53 @@ class HubSpotWebhookService
         $contacts = $this->fetchDealContacts((string) $dealId);
         $company = $this->fetchDealCompany((string) $dealId);
 
-        $log = $this->logService->webhook("HubSpot: deal {$value} contacts", [
+        $log = $this->logService->webhook("HubSpot: deal {$property} contacts", [
             'dealId' => $dealId,
-            'propertyName' => $event['propertyName'] ?? null,
+            'propertyName' => $property,
             'propertyValue' => $value,
             'deal' => $deal,
             'contacts' => $contacts,
             'company' => $company,
         ]);
 
+        // AML belongs to the UK individual checkbox only; ss_smartdoc skips it.
         // Contacts are the preferred AML subjects; with none on the deal we
         // fall back to the company owner, using the company's own address.
-        $aml = filled($contacts)
-            ? $this->runAmlSearches($contacts)
-            : $this->runCompanyOwnerAmlSearch($company);
+        $aml = $property === 'ss_individual_uk'
+            ? (filled($contacts)
+                ? $this->runAmlSearches($contacts)
+                : $this->runCompanyOwnerAmlSearch($company))
+            : [];
 
         if (filled($aml)) {
             // Fold the results back into the same log record, so the whole deal
             /*$log->update([
                 'payload' => [...$log->payload, 'aml' => $aml],
             ]);*/
-            $amlLog = $this->logService->webhook("HubSpot: deal {$value} aml", [
+            $amlLog = $this->logService->webhook("HubSpot: deal {$property} aml", [
                 'dealId' => $dealId,
-                'propertyValue' => $value,
+                'propertyName' => $property,
                 'aml' => $aml,
             ]);
 
             $this->writeAmlSsidsToDeal((string) $dealId, $aml, $amlLog->log_group_id);
         }
 
-        // SmartDoc runs off the same subjects. It lands on its own log line so
-        // the two searches read separately, sharing the log group id.
-        $smartDoc = filled($contacts)
-            ? $this->runSmartDocSearches($contacts)
-            : $this->runCompanyOwnerSmartDocSearch($company);
+        // SmartDoc belongs to its own checkbox and runs off the same subjects.
+        // It lands on its own log line so the two searches read separately.
+        $smartDoc = $property === 'ss_smartdoc'
+            ? (filled($contacts)
+                ? $this->runSmartDocSearches($contacts)
+                : $this->runCompanyOwnerSmartDocSearch($company))
+            : [];
 
         if (blank($smartDoc)) {
             return;
         }
 
-        $smartDocLog = $this->logService->webhook("HubSpot: deal {$value} smartdoc", [
+        $smartDocLog = $this->logService->webhook("HubSpot: deal {$property} smartdoc", [
             'dealId' => $dealId,
-            'propertyValue' => $value,
+            'propertyName' => $property,
             'smartdoc' => $smartDoc,
         ]);
 
