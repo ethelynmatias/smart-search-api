@@ -37,16 +37,21 @@ class AlreadySearchedDealTest extends TestCase
         ]);
     }
 
-    protected function handle(): void
+    protected function handle(string $property = 'ss_smartdoc'): void
     {
         $service = app(HubSpotWebhookService::class);
 
         (new ReflectionMethod($service, 'handleDealPropertyChange'))->invoke($service, [
             'subscriptionType' => 'deal.propertyChange',
             'objectId' => (int) $this->dealId,
-            'propertyName' => 'ss_smartdoc',
+            'propertyName' => $property,
             'propertyValue' => 'true',
         ]);
+    }
+
+    protected function assertProcessed(string $property, int $times): void
+    {
+        $this->assertSame($times, LogModel::where('message', "HubSpot: deal {$property} contacts")->count());
     }
 
     public function test_a_deal_with_no_search_properties_is_processed(): void
@@ -80,9 +85,27 @@ class AlreadySearchedDealTest extends TestCase
     {
         $this->fakeDeal(['smartsearch_uk_individual_ssid' => '100347688']);
 
-        $this->handle();
+        $this->handle('ss_individual_uk');
 
-        $this->assertSame(0, LogModel::where('message', 'HubSpot: deal ss_smartdoc contacts')->count());
+        $this->assertProcessed('ss_individual_uk', 0);
+    }
+
+    public function test_an_aml_ssid_does_not_block_the_smartdoc_checkbox(): void
+    {
+        $this->fakeDeal(['smartsearch_uk_individual_ssid' => '100347688']);
+
+        $this->handle('ss_smartdoc');
+
+        $this->assertProcessed('ss_smartdoc', 1);
+    }
+
+    public function test_smartdoc_properties_do_not_block_the_uk_individual_checkbox(): void
+    {
+        $this->fakeDeal(['smartdoc_ssid' => '100347689', 'smartdoc_status' => 'pending']);
+
+        $this->handle('ss_individual_uk');
+
+        $this->assertProcessed('ss_individual_uk', 1);
     }
 
     public function test_empty_search_properties_do_not_count_as_searched(): void

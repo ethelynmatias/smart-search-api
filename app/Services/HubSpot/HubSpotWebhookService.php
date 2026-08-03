@@ -26,10 +26,15 @@ class HubSpotWebhookService
     protected const SMARTDOC_REQUIRED_FIELDS = ['first_name', 'last_name', 'building', 'town', 'postcode', 'date_of_birth', 'sex'];
 
     /**
-     * Deal properties this service writes its search results to. Any of them
-     * holding a value means the deal has been searched already.
+     * Deal properties each checkbox writes its search results to, keyed by the
+     * checkbox that triggers them. Any of a checkbox's own properties holding a
+     * value means that search has run already; the other checkbox is
+     * unaffected, so both can still run on the same deal.
      */
-    protected const SEARCH_PROPERTIES = ['smartdoc_ssid', 'smartdoc_status', 'smartsearch_uk_individual_ssid'];
+    protected const SEARCH_PROPERTIES = [
+        'ss_smartdoc' => ['smartdoc_ssid', 'smartdoc_status'],
+        'ss_individual_uk' => ['smartsearch_uk_individual_ssid'],
+    ];
 
     public function __construct(
         protected LogService $logService,
@@ -118,7 +123,7 @@ class HubSpotWebhookService
         // The deal itself records whether it has been searched. HubSpot sends an
         // event per property and redelivers on its own schedule, so without this
         // one closing deal runs the searches and rewrites the deal repeatedly.
-        if (filled($searched = $this->searchPropertiesOn($deal))) {
+        if (filled($searched = $this->searchPropertiesOn($deal, $property))) {
             Log::debug('HubSpot deal already searched; skipping.', [
                 'dealId' => $dealId,
                 'propertyName' => $property,
@@ -352,18 +357,21 @@ class HubSpotWebhookService
     }
 
     /**
-     * The search properties already filled in on a deal, keyed by property.
+     * The search properties already filled in on a deal for the checkbox that
+     * triggered this run, keyed by property. ss_smartdoc looks at the smartdoc
+     * properties, ss_individual_uk at the UK individual ssid, so one search
+     * having run does not block the other.
      *
      * Empty for a deal that has not been searched, which is also what a deal we
      * could not fetch looks like — better to search twice than not at all.
      *
      * @return array<string, string>
      */
-    protected function searchPropertiesOn(array $deal): array
+    protected function searchPropertiesOn(array $deal, string $trigger): array
     {
         $properties = $deal['properties'] ?? [];
 
-        return collect(self::SEARCH_PROPERTIES)
+        return collect(self::SEARCH_PROPERTIES[$trigger] ?? [])
             ->mapWithKeys(fn (string $property) => [$property => $properties[$property] ?? null])
             ->filter(fn ($value) => filled($value))
             ->all();
@@ -657,7 +665,7 @@ class HubSpotWebhookService
             // The smartdoc/smartsearch properties are what we wrote on a previous
             // run; they are read back to tell an already searched deal apart.
             'properties' => 'dealname,amount,dealstage,pipeline,closedate,hubspot_owner_id,dealtype,'
-                .implode(',', self::SEARCH_PROPERTIES),
+                .implode(',', array_merge(...array_values(self::SEARCH_PROPERTIES))),
         ]);
 
         if ($response->failed()) {
