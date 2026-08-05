@@ -170,10 +170,11 @@ class HubSpotWebhookService
             'company' => $company,
         ]);
 
-        $aml = $property === 'ss_individual_uk'
-            ? (filled($contacts)
-                ? $this->runAmlSearches($contacts)
-                : $this->runCompanyOwnerAmlSearch($company))
+        // A deal with no contacts runs nothing for now; the company owner
+        // fallback is parked rather than dropped.
+        // : $this->runCompanyOwnerAmlSearch($company))
+        $aml = $property === 'ss_individual_uk' && filled($contacts)
+            ? $this->runAmlSearches($contacts)
             : [];
 
         if (filled($aml)) {
@@ -193,10 +194,11 @@ class HubSpotWebhookService
 
         // SmartDoc belongs to its own checkbox and runs off the same subjects.
         // It lands on its own log line so the two searches read separately.
-        $smartDoc = $property === 'ss_smartdoc'
-            ? (filled($contacts)
-                ? $this->runSmartDocSearches($contacts)
-                : $this->runCompanyOwnerSmartDocSearch($company))
+        // As with the AML search, no contacts means nothing runs for now; the
+        // company owner fallback is parked rather than dropped.
+        // : $this->runCompanyOwnerSmartDocSearch($company))
+        $smartDoc = $property === 'ss_smartdoc' && filled($contacts)
+            ? $this->runSmartDocSearches($contacts)
             : [];
 
         if (blank($smartDoc)) {
