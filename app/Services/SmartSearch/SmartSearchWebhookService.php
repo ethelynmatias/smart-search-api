@@ -145,11 +145,18 @@ class SmartSearchWebhookService
 
         // The ssid is already on the property from when the search was created,
         // so this moves that entry's status on and leaves its created date be.
-        $response = $this->hubSpotService->updateSmartDocStatus($detail->deal_id, $detail->ssid, $status->value);
+        $response = $this->hubSpotService->updateSmartDocStatus(
+            $detail->deal_id,
+            $detail->ssid,
+            $status->value,
+            null,
+            $detail->hubspot_contact_id,
+        );
 
         $this->logService->forGroup($detail->group_id)->webhook('HubSpot: deal smartdoc status written', [
             'dealId' => $detail->deal_id,
             'ssid' => $detail->ssid,
+            'hubspotContactId' => $detail->hubspot_contact_id,
             'smartdocStatus' => $status->value,
             // updateSmartDocStatus() logs its own failure and returns empty.
             'written' => filled($response),

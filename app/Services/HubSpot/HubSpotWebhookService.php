@@ -152,7 +152,7 @@ class HubSpotWebhookService
         }
 
         $contacts = $this->fetchDealContacts((string) $dealId);
-        //$company = $this->fetchDealCompany((string) $dealId);
+        // $company = $this->fetchDealCompany((string) $dealId);
 
         /*if (blank($company['owner'] ?? [])) {
             $company['owner'] = $deal['owner'] ?? [];
@@ -160,11 +160,11 @@ class HubSpotWebhookService
 
         $log = $this->logService->webhook("HubSpot: deal {$property} contacts", [
             'dealId' => $dealId,
-            //'propertyName' => $property,
-            //'propertyValue' => $value,
+            // 'propertyName' => $property,
+            // 'propertyValue' => $value,
             'deal' => $deal,
             'contacts' => $contacts,
-            //'company' => $company,
+            // 'company' => $company,
         ]);
 
         // A deal with no contacts runs nothing for now; the company owner
@@ -233,6 +233,7 @@ class HubSpotWebhookService
                 [
                     'group_id' => $groupId,
                     'deal_id' => $dealId,
+                    'hubspot_contact_id' => $entry['contactId'] ?? null,
                     'search_subject_id' => data_get($result, 'data.relationships.subject.data.id'),
                     'status' => WebhookDetailStatus::Pending,
                     'payload' => $entry,
@@ -252,6 +253,7 @@ class HubSpotWebhookService
                     $detail->status,
                     filled($createdAt) ? Carbon::parse($createdAt) : null,
                     $groupId,
+                    $detail->hubspot_contact_id,
                 );
             }
 
@@ -321,15 +323,16 @@ class HubSpotWebhookService
     /**
      * Write the SmartDoc search status back onto the deal in HubSpot.
      */
-    protected function writeSmartDocStatusToDeal(string $dealId, string $ssid, ?WebhookDetailStatus $status, ?Carbon $date, ?string $groupId): void
+    protected function writeSmartDocStatusToDeal(string $dealId, string $ssid, ?WebhookDetailStatus $status, ?Carbon $date, ?string $groupId, ?string $contactId = null): void
     {
         $value = ($status ?? WebhookDetailStatus::Pending)->value;
 
-        $response = $this->hubSpotService->updateSmartDocStatus($dealId, $ssid, $value, $date);
+        $response = $this->hubSpotService->updateSmartDocStatus($dealId, $ssid, $value, $date, $contactId);
 
         $this->logService->forGroup($groupId)->webhook('HubSpot: deal smartdoc status written', [
             'dealId' => $dealId,
             'ssid' => $ssid,
+            'hubspotContactId' => $contactId,
             'smartdocStatus' => $value,
             // updateSmartDocStatus() logs its own failure and returns empty.
             'written' => filled($response),

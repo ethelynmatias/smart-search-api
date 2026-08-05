@@ -10,6 +10,7 @@ class WebhookDetail extends Model
     protected $fillable = [
         'group_id',
         'deal_id',
+        'hubspot_contact_id',
         'ssid',
         'search_subject_id',
         'type',
