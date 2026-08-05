@@ -26,6 +26,13 @@ class HubSpotWebhookService
     protected const SMARTDOC_REQUIRED_FIELDS = ['first_name', 'last_name', 'building', 'town', 'postcode', 'date_of_birth', 'sex'];
 
     /**
+     * Title the company owner is searched under. HubSpot owners are users
+     * rather than contacts, so they carry no salutation to read, and the AML
+     * endpoint will not accept the title blank.
+     */
+    protected const OWNER_TITLE = 'Mr';
+
+    /**
      * Deal properties each checkbox writes its search results to, keyed by the
      * checkbox that triggers them. Any of a checkbox's own properties holding a
      * value means that search has run already; the other checkbox is
@@ -146,6 +153,13 @@ class HubSpotWebhookService
 
         $contacts = $this->fetchDealContacts((string) $dealId);
         $company = $this->fetchDealCompany((string) $dealId);
+
+        // A deal with no company, or a company carrying no owner of its own,
+        // falls back to the deal's owner so the searches still have a subject
+        // to name rather than stopping with nothing to show for it.
+        if (blank($company['owner'] ?? [])) {
+            $company['owner'] = $deal['owner'] ?? [];
+        }
 
         $log = $this->logService->webhook("HubSpot: deal {$property} contacts", [
             'dealId' => $dealId,
@@ -434,38 +448,65 @@ class HubSpotWebhookService
     }
 
     /**
-     * Run a single AML search for the company owner, for deals that have no
-     * associated contacts. The owner supplies the name and the company the
-     * address; owners carry no salutation, so title is not required here.
+     * Run a single AML search for the company owner
      */
     protected function runCompanyOwnerAmlSearch(array $company): array
     {
         $owner = $company['owner'] ?? [];
+        $properties = $company['properties'] ?? [];
+
+        // there is no owner to search and nothing else records why.
+        $this->logService->webhook('HubSpot: company owner aml search', [
+            'companyId' => $company['id'] ?? null,
+            'ownerId' => $owner['id'] ?? null,
+            'owner' => $owner,
+            'properties' => $properties,
+            'searched' => filled($owner),
+        ]);
 
         if (blank($owner)) {
             return [];
         }
 
-        $properties = $company['properties'] ?? [];
-
         $result = $this->runAmlSearch(
             [
-                'title' => null,
+                // Owner records carry no salutation, and the AML endpoint
+                // rejects a blank title, so it is fixed here.
+                'title' => self::OWNER_TITLE,
                 'first_name' => $owner['firstName'] ?? null,
                 'last_name' => $owner['lastName'] ?? null,
-                'address1' => $properties['address'] ?? null,
-                'city' => $properties['city'] ?? null,
-                'postcode' => $properties['zip'] ?? null,
+                // The owner is searched at their own address where they have
+                // one; the company's is the fallback, since an owner record
+                // often carries nothing but a name and an email.
+                'address1' => $this->firstFilled($owner['address'] ?? null, $properties['address'] ?? null),
+                'city' => $this->firstFilled($owner['city'] ?? null, $properties['city'] ?? null),
+                'postcode' => $this->firstFilled($owner['zip'] ?? null, $properties['zip'] ?? null),
+                'country' => $this->firstFilled($owner['country'] ?? null, $properties['country'] ?? null),
             ],
             [
                 'source' => 'company owner',
                 'companyId' => $company['id'] ?? null,
                 'ownerId' => $owner['id'] ?? null,
             ],
-            array_values(array_diff(self::AML_REQUIRED_FIELDS, ['title'])),
+            self::AML_REQUIRED_FIELDS,
         );
 
         return [$result];
+    }
+
+    /**
+     * The first value that is actually set, treating HubSpot's empty strings
+     * the same as its nulls so an unset property still falls through.
+     */
+    protected function firstFilled(mixed ...$values): mixed
+    {
+        foreach ($values as $value) {
+            if (filled($value)) {
+                return $value;
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -704,9 +745,14 @@ class HubSpotWebhookService
             return [];
         }
 
+        $properties = $response->json('properties', []);
+
         return [
             'id' => $response->json('id'),
-            'properties' => $response->json('properties', []),
+            'properties' => $properties,
+            // Resolved here rather than left as an id, so a deal with no company
+            // still has a named owner to fall back on as the search subject.
+            'owner' => $this->fetchOwner($properties['hubspot_owner_id'] ?? null),
         ];
     }
 
@@ -769,9 +815,6 @@ class HubSpotWebhookService
 
     /**
      * Fetch the company associated with a deal, along with its owner.
-     *
-     * A deal can carry several companies; HubSpot treats the first association
-     * as the primary one, which is the one we record.
      */
     protected function fetchDealCompany(string $dealId): array
     {
@@ -859,6 +902,13 @@ class HubSpotWebhookService
             'firstName' => $response->json('firstName'),
             'lastName' => $response->json('lastName'),
             'userId' => $response->json('userId'),
+            // Owners are HubSpot users and usually carry no address of their
+            // own; passed through so that an owner that does is searched at it
+            // rather than at the company's.
+            'address' => $response->json('address'),
+            'city' => $response->json('city'),
+            'zip' => $response->json('zip'),
+            'country' => $response->json('country'),
         ];
     }
 }
