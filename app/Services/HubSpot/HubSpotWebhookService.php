@@ -152,22 +152,19 @@ class HubSpotWebhookService
         }
 
         $contacts = $this->fetchDealContacts((string) $dealId);
-        $company = $this->fetchDealCompany((string) $dealId);
+        //$company = $this->fetchDealCompany((string) $dealId);
 
-        // A deal with no company, or a company carrying no owner of its own,
-        // falls back to the deal's owner so the searches still have a subject
-        // to name rather than stopping with nothing to show for it.
-        if (blank($company['owner'] ?? [])) {
+        /*if (blank($company['owner'] ?? [])) {
             $company['owner'] = $deal['owner'] ?? [];
-        }
+        }*/
 
         $log = $this->logService->webhook("HubSpot: deal {$property} contacts", [
             'dealId' => $dealId,
-            'propertyName' => $property,
-            'propertyValue' => $value,
+            //'propertyName' => $property,
+            //'propertyValue' => $value,
             'deal' => $deal,
             'contacts' => $contacts,
-            'company' => $company,
+            //'company' => $company,
         ]);
 
         // A deal with no contacts runs nothing for now; the company owner
@@ -179,9 +176,7 @@ class HubSpotWebhookService
 
         if (filled($aml)) {
             // Fold the results back into the same log record, so the whole deal
-            /*$log->update([
-                'payload' => [...$log->payload, 'aml' => $aml],
-            ]);*/
+
             $amlLog = $this->logService->webhook("HubSpot: deal {$property} aml", [
                 'dealId' => $dealId,
                 'propertyName' => $property,
@@ -193,9 +188,6 @@ class HubSpotWebhookService
         }
 
         // SmartDoc belongs to its own checkbox and runs off the same subjects.
-        // It lands on its own log line so the two searches read separately.
-        // As with the AML search, no contacts means nothing runs for now; the
-        // company owner fallback is parked rather than dropped.
         // : $this->runCompanyOwnerSmartDocSearch($company))
         $smartDoc = $property === 'ss_smartdoc' && filled($contacts)
             ? $this->runSmartDocSearches($contacts)
