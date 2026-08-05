@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help setup env build up down restart destroy logs shell artisan composer migrate fresh seed test pint pail key cache-clear
+.PHONY: help setup env build up down restart destroy logs shell artisan composer migrate fresh seed test pint pail key cache-clear db db-root db-query db-dump tinker
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-15s\033[0m %s\n", $$1, $$2}'
@@ -52,6 +52,24 @@ fresh: ## Drop all tables and re-run migrations
 
 seed: ## Run database seeders
 	docker compose exec app php artisan db:seed
+
+# The credentials are read from the mysql container's own environment rather
+# than from .env, so nothing here has to be kept in step with it by hand.
+db: ## Open a MySQL shell on the app database
+	docker compose exec mysql sh -c 'exec mysql -u"$$MYSQL_USER" -p"$$MYSQL_PASSWORD" "$$MYSQL_DATABASE"'
+
+db-root: ## Open a MySQL shell as root
+	docker compose exec mysql sh -c 'exec mysql -uroot -p"$$MYSQL_ROOT_PASSWORD" "$$MYSQL_DATABASE"'
+
+db-query: ## Run one SQL statement, e.g. make db-query sql="select * from webhook_details limit 5"
+	docker compose exec -T mysql sh -c 'exec mysql -u"$$MYSQL_USER" -p"$$MYSQL_PASSWORD" "$$MYSQL_DATABASE" -e "$(sql)"'
+
+db-dump: ## Dump the database to file, e.g. make db-dump file=backup.sql (default: storage/app/dump.sql)
+	docker compose exec -T mysql sh -c 'exec mysqldump -u"$$MYSQL_USER" -p"$$MYSQL_PASSWORD" "$$MYSQL_DATABASE"' > $(or $(file),storage/app/dump.sql)
+	@echo "✔ Dumped to $(or $(file),storage/app/dump.sql)"
+
+tinker: ## Open a Tinker shell (query the database through Eloquent)
+	docker compose exec app php artisan tinker
 
 test: ## Run the test suite
 	docker compose exec app php artisan test
