@@ -13,7 +13,6 @@ use App\Services\SmartSearch\SmartDocService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
-use Illuminate\Support\Facades\Log;
 
 class SmartSearchWebhookController extends Controller
 {
@@ -47,7 +46,6 @@ class SmartSearchWebhookController extends Controller
         }
 
         // The detail is read first for its group id, so the callback logs land
-        // in the same log group as the HubSpot deal that started the search.
         $detail = $this->webhookDetails->findBySsid((string) $searchId);
 
         if (blank($detail)) {
@@ -113,12 +111,6 @@ class SmartSearchWebhookController extends Controller
                 'response' => $response,
             ]);
         } catch (SmartSearchException $e) {
-            Log::warning('SmartDoc subject notification failed.', [
-                'ssid' => $detail->ssid,
-                'method' => $method,
-                'status' => $e->status,
-                'error' => $e->getMessage(),
-            ]);
 
             $this->logService->forGroup($detail->group_id)->webhook('SmartSearch: subject notification failed', [
                 'ssid' => $detail->ssid,
@@ -165,7 +157,8 @@ class SmartSearchWebhookController extends Controller
             return;
         }
 
-        $response = $this->hubSpotService->updateSmartDocStatus($detail->deal_id, $status->value);
+        // The ssid is already on the property from when the search was created,
+        $response = $this->hubSpotService->updateSmartDocStatus($detail->deal_id, $detail->ssid, $status->value);
 
         $this->logService->forGroup($detail->group_id)->webhook('HubSpot: deal smartdoc status written', [
             'dealId' => $detail->deal_id,

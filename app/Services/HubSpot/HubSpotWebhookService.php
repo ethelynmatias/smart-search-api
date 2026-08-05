@@ -205,7 +205,6 @@ class HubSpotWebhookService
     protected function recordSmartDocDetails(string $dealId, array $smartDoc, ?string $groupId): void
     {
         $ssids = [];
-        $statusWritten = false;
 
         foreach ($smartDoc as $entry) {
             $result = $entry['result'] ?? null;
@@ -235,13 +234,17 @@ class HubSpotWebhookService
             if ($detail->wasRecentlyCreated) {
                 $this->registerSmartDocWebhook((string) $ssid, $groupId);
 
-                // The deal carries one status for the whole set of searches, so
-                // it is written once however many subjects the deal has.
-                if (! $statusWritten) {
-                    $this->writeSmartDocStatusToDeal($dealId, $detail->status, $groupId);
+                // The deal carries a status per search, so every subject's ssid
+                // gets its own entry rather than sharing one.
+                $createdAt = data_get($result, 'data.meta.created_at');
 
-                    $statusWritten = true;
-                }
+                $this->writeSmartDocStatusToDeal(
+                    $dealId,
+                    (string) $ssid,
+                    $detail->status,
+                    filled($createdAt) ? Carbon::parse($createdAt) : null,
+                    $groupId,
+                );
             }
 
             $ssids[] = (string) $ssid;
@@ -310,14 +313,15 @@ class HubSpotWebhookService
     /**
      * Write the SmartDoc search status back onto the deal in HubSpot.
      */
-    protected function writeSmartDocStatusToDeal(string $dealId, ?WebhookDetailStatus $status, ?string $groupId): void
+    protected function writeSmartDocStatusToDeal(string $dealId, string $ssid, ?WebhookDetailStatus $status, ?Carbon $date, ?string $groupId): void
     {
         $value = ($status ?? WebhookDetailStatus::Pending)->value;
 
-        $response = $this->hubSpotService->updateSmartDocStatus($dealId, $value);
+        $response = $this->hubSpotService->updateSmartDocStatus($dealId, $ssid, $value, $date);
 
         $this->logService->forGroup($groupId)->webhook('HubSpot: deal smartdoc status written', [
             'dealId' => $dealId,
+            'ssid' => $ssid,
             'smartdocStatus' => $value,
             // updateSmartDocStatus() logs its own failure and returns empty.
             'written' => filled($response),

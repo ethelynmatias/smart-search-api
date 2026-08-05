@@ -20,11 +20,75 @@ class HubSpotService
     }
 
     /**
-     * Write the SmartDoc search status back onto the deal.
+     * Record a SmartDoc search status on the deal, keyed by ssid:
+     *
+     *     {"<ssid>": {"status": "pending", "date_created": "2026-08-05", "date_updated": "2026-08-05"}}
+     *
+     * The property is appended to rather than overwritten, so a deal searched
+     * for several subjects — or searched again — keeps a status per search. An
+     * ssid already on the deal keeps its date_created and only has its status
+     * and date_updated moved on.
      */
-    public function updateSmartDocStatus(string $dealId, string $status): array
+    public function updateSmartDocStatus(string $dealId, string $ssid, string $status, ?Carbon $date = null): array
     {
-        return $this->updateDealProperties($dealId, ['smartdoc_status' => $status]);
+        $searches = $this->smartDocStatuses($dealId);
+
+        $searches[$ssid] = [
+            'status' => $status,
+            // An ssid we have seen before keeps the date it was first written.
+            'date_created' => data_get($searches, [$ssid, 'date_created']) ?? $this->dateProperty($date),
+            'date_updated' => $this->dateProperty($date),
+        ];
+
+        return $this->updateDealProperties($dealId, [
+            'smartdoc_status' => json_encode($searches),
+        ]);
+    }
+
+    /**
+     * The SmartDoc statuses already recorded on a deal, keyed by ssid.
+     * @return array<string, array{status: string, date_created: string, date_updated: string}>
+     */
+    protected function smartDocStatuses(string $dealId): array
+    {
+        $client = $this->auth->client('fetch deal smartdoc statuses');
+
+        if (blank($client)) {
+            return [];
+        }
+
+        $response = $client->get("/crm/v3/objects/deals/{$dealId}", [
+            'properties' => 'smartdoc_status',
+        ]);
+
+        if ($response->failed()) {
+            Log::warning('Failed to read the smartdoc statuses off the HubSpot deal.', [
+                'dealId' => $dealId,
+                'status' => $response->status(),
+                'body' => $response->json(),
+            ]);
+
+            return [];
+        }
+
+        $value = $response->json('properties.smartdoc_status');
+
+        if (blank($value)) {
+            return [];
+        }
+
+        $searches = json_decode($value, true);
+
+        if (! is_array($searches)) {
+            Log::warning('The smartdoc status property on the HubSpot deal is not the JSON we write.', [
+                'dealId' => $dealId,
+                'smartdocStatus' => $value,
+            ]);
+
+            return [];
+        }
+
+        return $searches;
     }
 
     /**
