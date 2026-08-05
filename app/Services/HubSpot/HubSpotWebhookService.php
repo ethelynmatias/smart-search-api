@@ -151,18 +151,26 @@ class HubSpotWebhookService
             return;
         }
 
-        $contacts = $this->fetchDealContacts((string) $dealId);
-        // $company = $this->fetchDealCompany((string) $dealId);
+        // $contacts = $this->fetchDealContacts((string) $dealId);
+        $company = $this->fetchDealCompany((string) $dealId);
 
         /*if (blank($company['owner'] ?? [])) {
             $company['owner'] = $deal['owner'] ?? [];
         }*/
+
+        // contacts associated with it.
+        $companyId = $company['id'] ?? null;
+
+        $contacts = filled($companyId)
+            ? $this->fetchCompanyContacts((string) $companyId)
+            : [];
 
         $log = $this->logService->webhook("HubSpot: deal {$property} contacts", [
             'dealId' => $dealId,
             // 'propertyName' => $property,
             // 'propertyValue' => $value,
             'deal' => $deal,
+            'companyId' => $companyId,
             'contacts' => $contacts,
             // 'company' => $company,
         ]);
@@ -758,17 +766,40 @@ class HubSpotWebhookService
      */
     protected function fetchDealContacts(string $dealId): array
     {
-        $client = $this->hubSpotAuth->client('fetch deal contacts');
+        return $this->fetchAssociatedContacts('deals', $dealId);
+    }
+
+    /**
+     * Fetch the contacts associated with a company from the HubSpot API.
+     *
+     * These are the fallback subjects for a deal that has no contacts of its
+     * own but is associated with a company that does.
+     */
+    protected function fetchCompanyContacts(string $companyId): array
+    {
+        return $this->fetchAssociatedContacts('companies', $companyId);
+    }
+
+    /**
+     * Fetch the contacts associated with a HubSpot object, with the properties
+     * both searches read.
+     *
+     * @param  string  $objectType  the plural object type, e.g. deals, companies
+     */
+    protected function fetchAssociatedContacts(string $objectType, string $objectId): array
+    {
+        $client = $this->hubSpotAuth->client("fetch {$objectType} contacts");
 
         if (blank($client)) {
             return [];
         }
 
-        $associations = $client->get("/crm/v4/objects/deals/{$dealId}/associations/contacts");
+        $associations = $client->get("/crm/v4/objects/{$objectType}/{$objectId}/associations/contacts");
 
         if ($associations->failed()) {
-            Log::warning('Failed to fetch HubSpot deal contact associations.', [
-                'dealId' => $dealId,
+            Log::warning('Failed to fetch HubSpot contact associations.', [
+                'objectType' => $objectType,
+                'objectId' => $objectId,
                 'status' => $associations->status(),
                 'body' => $associations->json(),
             ]);
@@ -793,8 +824,9 @@ class HubSpotWebhookService
         ]);
 
         if ($response->failed()) {
-            Log::warning('Failed to fetch HubSpot contacts for deal.', [
-                'dealId' => $dealId,
+            Log::warning('Failed to fetch HubSpot contacts.', [
+                'objectType' => $objectType,
+                'objectId' => $objectId,
                 'status' => $response->status(),
                 'body' => $response->json(),
             ]);
