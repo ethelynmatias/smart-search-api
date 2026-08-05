@@ -21,6 +21,7 @@ class HubSpotWebhookController extends Controller
     public function __invoke(Request $request): JsonResponse
     {
         if (! $this->hubSpotWebhookService->hasValidSignature($request)) {
+
             $this->logService->webhook('HubSpot webhook rejected: invalid signature', [
                 'ip' => $request->ip(),
                 'signature' => $request->header('X-HubSpot-Signature-v3'),
