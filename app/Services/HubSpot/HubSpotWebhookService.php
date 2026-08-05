@@ -165,7 +165,7 @@ class HubSpotWebhookService
             ? $this->fetchCompanyContacts((string) $companyId)
             : [];
 
-        $log = $this->logService->webhook("HubSpot: deal {$property} contacts", [
+        $this->logService->webhook("HubSpot: deal {$property} contacts", [
             'dealId' => $dealId,
             // 'propertyName' => $property,
             // 'propertyValue' => $value,
@@ -444,7 +444,10 @@ class HubSpotWebhookService
                     'city' => $properties['city'] ?? null,
                     'postcode' => $properties['zip'] ?? null,
                 ],
-                ['contactId' => $contact['id'] ?? null],
+                [
+                    'contactId' => $contact['id'] ?? null,
+                    'label' => $contact['label'] ?? null,
+                ],
                 self::AML_REQUIRED_FIELDS,
             );
         }
@@ -528,6 +531,7 @@ class HubSpotWebhookService
                 $this->smartDocData($properties),
                 [
                     'contactId' => $contact['id'] ?? null,
+                    'label' => $contact['label'] ?? null,
                     // Carried through so the completion callback can notify the
                     // subject without fetching the contact from HubSpot again.
                     'email' => $properties['email'] ?? null,
@@ -807,14 +811,25 @@ class HubSpotWebhookService
             return [];
         }
 
-        $contactIds = collect($associations->json('results', []))
-            ->pluck('toObjectId')
-            ->filter()
-            ->values();
+        // The association labels say what the contact is to the object — the
+        // director, the beneficial owner, and so on — and only come back on
+        // the association call, so they are kept to hand back on the contact.
+        $labels = collect($associations->json('results', []))
+            ->filter(fn (array $association) => filled($association['toObjectId'] ?? null))
+            ->mapWithKeys(fn (array $association) => [
+                (string) $association['toObjectId'] => collect($association['associationTypes'] ?? [])
+                    ->pluck('label')
+                    ->filter()
+                    ->unique()
+                    ->values()
+                    ->all(),
+            ]);
 
-        if ($contactIds->isEmpty()) {
+        if ($labels->isEmpty()) {
             return [];
         }
+
+        $contactIds = $labels->keys();
 
         $response = $client->post('/crm/v3/objects/contacts/batch/read', [
             // salutation/address/city/zip feed the AML search;
@@ -838,6 +853,10 @@ class HubSpotWebhookService
             ->map(fn (array $contact) => [
                 'id' => $contact['id'] ?? null,
                 'properties' => $contact['properties'] ?? [],
+                // Unlabelled associations are the HubSpot default one, which
+                // carries no label at all, so this is empty rather than absent.
+                'labels' => $labels->get((string) ($contact['id'] ?? ''), []),
+                'label' => collect($labels->get((string) ($contact['id'] ?? ''), []))->first(),
             ])
             ->all();
     }
