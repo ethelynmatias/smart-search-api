@@ -62,11 +62,34 @@ class SmartSearchWebhookService
         ]);
 
         $this->writeStatusToDeal($detail, $status);
+        $this->writeResponseToContact($detail, $payload);
 
         if ($status === WebhookDetailStatus::Completed) {
             $this->notifySubject($detail);
             $this->writeRequestDateToDeal($detail, $payload);
         }
+    }
+
+    /**
+     * Write the callback payload onto the contact the search was run for.
+     */
+    protected function writeResponseToContact(WebhookDetail $detail, array $payload): void
+    {
+        if ($detail->type !== 'smartdoc' || blank($detail->hubspot_contact_id)) {
+            return;
+        }
+
+        $response = $this->hubSpotService->updateContactSmartDocResponse(
+            $detail->hubspot_contact_id,
+            $payload,
+        );
+
+        $this->logService->forGroup($detail->group_id)->webhook('HubSpot: contact smartdoc response written', [
+            'contactId' => $detail->hubspot_contact_id,
+            'ssid' => $detail->ssid,
+            // updateContactSmartDocResponse() logs its own failure and returns empty.
+            'written' => filled($response),
+        ]);
     }
 
     protected function notifySubject(WebhookDetail $detail): void

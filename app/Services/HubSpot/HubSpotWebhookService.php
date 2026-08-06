@@ -308,34 +308,37 @@ class HubSpotWebhookService
 
         // The deal holds the whole set; each contact holds its own search.
         foreach ($aml as $entry) {
-            $this->writeAmlSsidToContact(
-                (string) data_get($entry, 'result.data.id'),
-                $entry['contactId'] ?? null,
-                $groupId,
-            );
+            $this->writeAmlToContact($entry, $groupId);
         }
     }
 
     /**
-     * Write an AML search id onto the contact it was created for.
+     * Write one AML search — its id and the response it came back with — onto
+     * the contact it was run for.
      *
      * A search created for the company owner has no contact behind it, and a
      * subject that was skipped has no search, so either way there is nothing
      * to write and the deal keeps the only record.
      */
-    protected function writeAmlSsidToContact(string $ssid, ?string $contactId, ?string $groupId): void
+    protected function writeAmlToContact(array $entry, ?string $groupId): void
     {
-        if (blank($ssid) || blank($contactId)) {
+        $contactId = $entry['contactId'] ?? null;
+        $ssid = data_get($entry, 'result.data.id');
+
+        if (blank($contactId) || blank($ssid)) {
             return;
         }
 
-        $response = $this->hubSpotService->updateContactAmlSsid($contactId, $ssid);
+        $ssidWritten = $this->hubSpotService->updateContactAmlSsid((string) $contactId, (string) $ssid);
+        $responseWritten = $this->hubSpotService->updateContactAmlResponse((string) $contactId, $entry['result'] ?? null);
 
-        $this->logService->forGroup($groupId)->webhook('HubSpot: contact aml ssid written', [
+        $this->logService->forGroup($groupId)->webhook('HubSpot: contact aml written', [
             'contactId' => $contactId,
             'ssid' => $ssid,
-            // updateContactAmlSsid() logs its own failure and returns empty.
-            'written' => filled($response),
+            'outcome' => data_get($entry, 'result.included.0.attributes.outcome'),
+            // The update methods log their own failures and return empty.
+            'ssidWritten' => filled($ssidWritten),
+            'responseWritten' => filled($responseWritten),
         ]);
     }
 
