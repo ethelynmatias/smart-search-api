@@ -267,6 +267,8 @@ class HubSpotWebhookService
                     $groupId,
                     $detail->hubspot_contact_id,
                 );
+
+                $this->writeSmartDocSsidToContact((string) $ssid, $detail->hubspot_contact_id, $groupId);
             }
 
             $ssids[] = (string) $ssid;
@@ -303,6 +305,38 @@ class HubSpotWebhookService
             // updateSmartSearchUkIndividualSsid() logs its own failure and returns empty.
             'written' => filled($response),
         ]);
+
+        // The deal holds the whole set; each contact holds its own search.
+        foreach ($aml as $entry) {
+            $this->writeAmlSsidToContact(
+                (string) data_get($entry, 'result.data.id'),
+                $entry['contactId'] ?? null,
+                $groupId,
+            );
+        }
+    }
+
+    /**
+     * Write an AML search id onto the contact it was created for.
+     *
+     * A search created for the company owner has no contact behind it, and a
+     * subject that was skipped has no search, so either way there is nothing
+     * to write and the deal keeps the only record.
+     */
+    protected function writeAmlSsidToContact(string $ssid, ?string $contactId, ?string $groupId): void
+    {
+        if (blank($ssid) || blank($contactId)) {
+            return;
+        }
+
+        $response = $this->hubSpotService->updateContactAmlSsid($contactId, $ssid);
+
+        $this->logService->forGroup($groupId)->webhook('HubSpot: contact aml ssid written', [
+            'contactId' => $contactId,
+            'ssid' => $ssid,
+            // updateContactAmlSsid() logs its own failure and returns empty.
+            'written' => filled($response),
+        ]);
     }
 
     /**
@@ -328,6 +362,28 @@ class HubSpotWebhookService
             'createdAt' => $createdAt,
             'ukIndividualRequestDate' => $date->utc()->toDateString(),
             // updateUkIndividualRequestDate() logs its own failure and returns empty.
+            'written' => filled($response),
+        ]);
+    }
+
+    /**
+     * Write a SmartDoc search id onto the contact it was created for.
+     *
+     * A search created for the company owner has no contact behind it, so
+     * there is nothing to write to and the id stays on the deal alone.
+     */
+    protected function writeSmartDocSsidToContact(string $ssid, ?string $contactId, ?string $groupId): void
+    {
+        if (blank($contactId)) {
+            return;
+        }
+
+        $response = $this->hubSpotService->updateContactSmartDocSsid($contactId, $ssid);
+
+        $this->logService->forGroup($groupId)->webhook('HubSpot: contact smartdoc ssid written', [
+            'contactId' => $contactId,
+            'ssid' => $ssid,
+            // updateContactSmartDocSsid() logs its own failure and returns empty.
             'written' => filled($response),
         ]);
     }
@@ -441,7 +497,7 @@ class HubSpotWebhookService
 
             $results[] = $this->runAmlSearch(
                 [
-                    'title' => $properties['salutation'] ?? null,
+                    'title' => $properties['honorifictitle'] ?? null,
                     'first_name' => $properties['firstname'] ?? null,
                     'last_name' => $properties['lastname'] ?? null,
                     'address1' => $properties['address'] ?? null,
@@ -622,11 +678,11 @@ class HubSpotWebhookService
     protected function smartDocData(array $properties): array
     {
         return [
-            'title' => $properties['salutation'] ?? null,
+            'title' => $properties['honorifictitle'] ?? null,
             'first_name' => $properties['firstname'] ?? null,
             'middle_name' => null,
             'last_name' => $properties['lastname'] ?? null,
-            'date_of_birth' => $this->normaliseDate($properties['date_of_birth'] ?? null),
+            'date_of_birth' => $this->normaliseDate($properties['dob_date_of_birth'] ?? null),
             'sex' => $this->normaliseSex($properties['gender'] ?? null),
             'building' => $properties['address'] ?? null,
             'street_1' => $properties['address'] ?? null,
@@ -852,9 +908,6 @@ class HubSpotWebhookService
             return [];
         }
 
-        // The association labels say what the contact is to the object — the
-        // director, the beneficial owner, and so on — and only come back on
-        // the association call, so they are kept to hand back on the contact.
         $labels = collect($associations->json('results', []))
             ->filter(fn (array $association) => filled($association['toObjectId'] ?? null))
             ->mapWithKeys(fn (array $association) => [
@@ -873,9 +926,9 @@ class HubSpotWebhookService
         $contactIds = $labels->keys();
 
         $response = $client->post('/crm/v3/objects/contacts/batch/read', [
-            // salutation/address/city/zip feed the AML search;
-            // date_of_birth/gender feed the SmartDoc verification.
-            'properties' => ['firstname', 'lastname', 'email', 'phone', 'company', 'lifecyclestage', 'salutation', 'address', 'city', 'zip', 'state', 'country', 'date_of_birth', 'gender'],
+            // honorifictitle/address/city/zip feed the AML search;
+            // dob_date_of_birth/gender feed the SmartDoc verification.
+            'properties' => ['firstname', 'lastname', 'email', 'phone', 'company', 'lifecyclestage', 'honorifictitle', 'address', 'city', 'zip', 'state', 'country', 'dob_date_of_birth', 'gender'],
             'inputs' => $contactIds->map(fn ($id) => ['id' => (string) $id])->all(),
         ]);
 

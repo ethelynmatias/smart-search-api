@@ -20,14 +20,87 @@ class HubSpotService
     }
 
     /**
+     * Write the SmartDoc search id onto the contact it was created for.
+     *
+     * One contact is one subject is one search, so this is the id of that
+     * contact's own search rather than the deal's list of all of them.
+     */
+    public function updateContactSmartDocSsid(string $contactId, string $ssid): array
+    {
+        return $this->updateContactProperties($contactId, ['smartdoc_ssid' => $ssid]);
+    }
+
+    /**
+     * Write the SmartDoc search response onto the contact it belongs to.
+     *
+     * Takes the response either as the decoded array it arrives as or as a
+     * string already prepared by the caller, so the encoding is decided in one
+     * place rather than at each call site.
+     */
+    public function updateContactSmartDocResponse(string $contactId, array|string|null $response): array
+    {
+        return $this->updateContactProperties($contactId, [
+            'smartdoc_response' => is_array($response) ? json_encode($response) : (string) $response,
+        ]);
+    }
+
+    /**
+     * Write the AML search id onto the contact it was created for.
+     */
+    public function updateContactAmlSsid(string $contactId, string $ssid): array
+    {
+        return $this->updateContactProperties($contactId, ['aml_ssid' => $ssid]);
+    }
+
+    /**
+     * Write the AML search response onto the contact it belongs to.
+     *
+     * Takes the response either as the decoded array it arrives as or as a
+     * string already prepared by the caller, so the encoding is decided in one
+     * place rather than at each call site.
+     */
+    public function updateContactAmlResponse(string $contactId, array|string|null $response): array
+    {
+        return $this->updateContactProperties($contactId, [
+            'aml_response' => is_array($response) ? json_encode($response) : (string) $response,
+        ]);
+    }
+
+    /**
+     * Patch properties onto a contact.
+     *
+     * Never throws, for the same reason the deal write does not: the search is
+     * already held on the webhook detail, so a write-back that fails costs the
+     * contact properties, not the record of the search.
+     */
+    protected function updateContactProperties(string $contactId, array $properties): array
+    {
+        $client = $this->auth->client('update contact properties');
+
+        if (blank($client)) {
+            return [];
+        }
+
+        $response = $client->patch("/crm/v3/objects/contacts/{$contactId}", [
+            'properties' => $properties,
+        ]);
+
+        if ($response->failed()) {
+            Log::warning('Failed to write properties onto the HubSpot contact.', [
+                'contactId' => $contactId,
+                'properties' => $properties,
+                'status' => $response->status(),
+                'body' => $response->json(),
+            ]);
+
+            return [];
+        }
+
+        return $response->json();
+    }
+
+    /**
      * Record a SmartDoc search status on the deal, keyed by ssid:
-     *
-     *     {"<ssid>": {"status": "pending", "date_created": "2026-08-05", "date_updated": "2026-08-05", "hubspot_contact_id": "<id>"}}
-     *
-     * The property is appended to rather than overwritten, so a deal searched
-     * for several subjects — or searched again — keeps a status per search. An
-     * ssid already on the deal keeps its date_created and only has its status
-     * and date_updated moved on.
      */
     public function updateSmartDocStatus(string $dealId, string $ssid, string $status, ?Carbon $date = null, ?string $contactId = null): array
     {
@@ -55,27 +128,7 @@ class HubSpotService
      */
     protected function smartDocStatuses(string $dealId): array
     {
-        $client = $this->auth->client('fetch deal smartdoc statuses');
-
-        if (blank($client)) {
-            return [];
-        }
-
-        $response = $client->get("/crm/v3/objects/deals/{$dealId}", [
-            'properties' => 'smartdoc_status',
-        ]);
-
-        if ($response->failed()) {
-            Log::warning('Failed to read the smartdoc statuses off the HubSpot deal.', [
-                'dealId' => $dealId,
-                'status' => $response->status(),
-                'body' => $response->json(),
-            ]);
-
-            return [];
-        }
-
-        $value = $response->json('properties.smartdoc_status');
+        $value = $this->dealProperty($dealId, 'smartdoc_status');
 
         if (blank($value)) {
             return [];
@@ -96,11 +149,51 @@ class HubSpotService
     }
 
     /**
-     * Write the UK individual AML search id back onto the deal.
+     * Add the UK individual AML search ids to the ones already on the deal.
      */
     public function updateSmartSearchUkIndividualSsid(string $dealId, string $ssid): array
     {
-        return $this->updateDealProperties($dealId, ['smartsearch_uk_individual_ssid' => $ssid]);
+        $existing = $this->dealProperty($dealId, 'smartsearch_uk_individual_ssid');
+
+        $ssids = collect(explode(',', (string) $existing))
+            ->concat(explode(',', $ssid))
+            ->map(fn (string $value) => trim($value))
+            ->filter()
+            ->unique()
+            ->values();
+
+        return $this->updateDealProperties($dealId, [
+            'smartsearch_uk_individual_ssid' => $ssids->implode(','),
+        ]);
+    }
+
+    /**
+     * Read one property off a deal.
+     */
+    protected function dealProperty(string $dealId, string $property): ?string
+    {
+        $client = $this->auth->client("fetch deal {$property}");
+
+        if (blank($client)) {
+            return null;
+        }
+
+        $response = $client->get("/crm/v3/objects/deals/{$dealId}", [
+            'properties' => $property,
+        ]);
+
+        if ($response->failed()) {
+            Log::warning('Failed to read a property off the HubSpot deal.', [
+                'dealId' => $dealId,
+                'property' => $property,
+                'status' => $response->status(),
+                'body' => $response->json(),
+            ]);
+
+            return null;
+        }
+
+        return $response->json("properties.{$property}");
     }
 
     /**
@@ -114,10 +207,22 @@ class HubSpotService
     }
 
     /**
-     * Stamp the date the UK individual AML search was requested onto the deal.
+     * Stamp the date the UK individual AML search was requested onto the deal,
+     * without disturbing a date already on it.
      */
     public function updateUkIndividualRequestDate(string $dealId, ?Carbon $date = null): array
     {
+        $existing = $this->dealProperty($dealId, 'uk_individual_request_date');
+
+        if (filled($existing)) {
+            Log::debug('HubSpot deal already holds a uk individual request date; keeping it.', [
+                'dealId' => $dealId,
+                'ukIndividualRequestDate' => $existing,
+            ]);
+
+            return [];
+        }
+
         return $this->updateDealProperties($dealId, [
             'uk_individual_request_date' => $this->dateProperty($date),
         ]);
