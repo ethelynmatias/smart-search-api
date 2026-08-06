@@ -11,6 +11,7 @@ use App\Services\SmartSearch\SmartDocService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use Throwable;
 
 class HubSpotWebhookService
@@ -33,14 +34,22 @@ class HubSpotWebhookService
     protected const OWNER_TITLE = 'Mr';
 
     /**
+     * Association labels that make a contact an AML subject. Matched loosely
+     * against the labels on the contact's association, so "PSC (Person with
+     * Significant Control)" and "Non-executive Director" both count.
+     *
+     * A contact without one of these is verified with SmartDoc only.
+     */
+    protected const AML_LABELS = ['director', 'psc'];
+
+    /**
      * Deal properties each checkbox writes its search results to, keyed by the
      * checkbox that triggers them. Any of a checkbox's own properties holding a
      * value means that search has run already; the other checkbox is
      * unaffected, so both can still run on the same deal.
      */
     protected const SEARCH_PROPERTIES = [
-        'ss_smartdoc' => ['smartdoc_ssid', 'smartdoc_status'],
-        'ss_individual_uk' => ['smartsearch_uk_individual_ssid'],
+        'smart_search' => ['smartdoc_ssid', 'smartdoc_status'],
     ];
 
     public function __construct(
@@ -104,10 +113,6 @@ class HubSpotWebhookService
 
     /**
      * Whether an event is one this app acts on, and so worth a log line.
-     *
-     * Only deal.propertyChange is filtered: the searches are triggered by the
-     * checkbox properties rather than the deal stage, so a change to any other
-     * property, or a checkbox being cleared, is nothing to record.
      */
     protected function isActionable(array $event): bool
     {
@@ -154,10 +159,6 @@ class HubSpotWebhookService
         // $contacts = $this->fetchDealContacts((string) $dealId);
         $company = $this->fetchDealCompany((string) $dealId);
 
-        /*if (blank($company['owner'] ?? [])) {
-            $company['owner'] = $deal['owner'] ?? [];
-        }*/
-
         // contacts associated with it.
         $companyId = $company['id'] ?? null;
 
@@ -167,19 +168,22 @@ class HubSpotWebhookService
 
         $this->logService->webhook("HubSpot: deal {$property} contacts", [
             'dealId' => $dealId,
-            // 'propertyName' => $property,
-            // 'propertyValue' => $value,
             'deal' => $deal,
             'companyId' => $companyId,
             'contacts' => $contacts,
-            // 'company' => $company,
+            'company' => $company,
+            'amlContactIds' => collect($this->amlContacts($contacts))->pluck('id')->all(),
         ]);
+
+        // Only the directors and PSCs are put through AML; everyone else on the
+        // company is verified with SmartDoc alone.
+        $amlContacts = $this->amlContacts($contacts);
 
         // A deal with no contacts runs nothing for now; the company owner
         // fallback is parked rather than dropped.
         // : $this->runCompanyOwnerAmlSearch($company))
-        $aml = $property === 'ss_individual_uk' && filled($contacts)
-            ? $this->runAmlSearches($contacts)
+        $aml = $property === 'smart_search' && filled($amlContacts)
+            ? $this->runAmlSearches($amlContacts)
             : [];
 
         if (filled($aml)) {
@@ -197,7 +201,7 @@ class HubSpotWebhookService
 
         // SmartDoc belongs to its own checkbox and runs off the same subjects.
         // : $this->runCompanyOwnerSmartDocSearch($company))
-        $smartDoc = $property === 'ss_smartdoc' && filled($contacts)
+        $smartDoc = $property === 'smart_search' && filled($contacts)
             ? $this->runSmartDocSearches($contacts)
             : [];
 
@@ -446,7 +450,10 @@ class HubSpotWebhookService
                 ],
                 [
                     'contactId' => $contact['id'] ?? null,
+                    // Both forms: an association can carry more than one label,
+                    // and the payload is what the callback reads back later.
                     'label' => $contact['label'] ?? null,
+                    'labels' => $contact['labels'] ?? [],
                 ],
                 self::AML_REQUIRED_FIELDS,
             );
@@ -518,6 +525,37 @@ class HubSpotWebhookService
     }
 
     /**
+     * The contacts that go through AML: the ones whose association with the
+     * company labels them a director or a PSC.
+     *
+     * @param  array<int, array>  $contacts
+     * @return array<int, array>
+     */
+    protected function amlContacts(array $contacts): array
+    {
+        return collect($contacts)
+            ->filter(fn (array $contact) => $this->hasAmlLabel($contact['labels'] ?? []))
+            ->values()
+            ->all();
+    }
+
+    /**
+     * Whether any of an association's labels marks the contact as an AML
+     * subject. Matched on a lowercased substring so the wording of the label in
+     * HubSpot can vary without the check having to be kept in step with it.
+     *
+     * @param  array<int, string>  $labels
+     */
+    protected function hasAmlLabel(array $labels): bool
+    {
+        return collect($labels)->contains(
+            fn (string $label) => collect(self::AML_LABELS)->contains(
+                fn (string $wanted) => str_contains(Str::lower($label), $wanted),
+            ),
+        );
+    }
+
+    /**
      * Create a SmartDoc verification for each contact on the deal.
      */
     protected function runSmartDocSearches(array $contacts): array
@@ -531,7 +569,10 @@ class HubSpotWebhookService
                 $this->smartDocData($properties),
                 [
                     'contactId' => $contact['id'] ?? null,
+                    // Both forms: an association can carry more than one label,
+                    // and the payload is what the callback reads back later.
                     'label' => $contact['label'] ?? null,
+                    'labels' => $contact['labels'] ?? [],
                     // Carried through so the completion callback can notify the
                     // subject without fetching the contact from HubSpot again.
                     'email' => $properties['email'] ?? null,

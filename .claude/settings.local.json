@@ -8,7 +8,9 @@
       "Bash(php -l app/Services/HubSpotWebhookService.php)",
       "Bash(./vendor/bin/pint app/Services/HubSpotWebhookService.php)",
       "Bash(./vendor/bin/phpunit tests/Feature/HubSpotWebhookServiceTest.php)",
-      "Bash(php artisan *)"
+      "Bash(php artisan *)",
+      "Bash(./vendor/bin/phpunit)",
+      "Bash(python3 -c \"import sys,json,re; s=sys.stdin.read\\(\\); m=re.search\\(r'\\\\{\\\\\"tool\\\\\":\\\\\"phpunit\\\\\".*',s\\); d=json.loads\\(m.group\\(0\\)\\); [print\\('---',f['test'],'\\\\n',f['message'][:200]\\) for f in d['failures']]\")"
     ]
   }
 }
