@@ -21,9 +21,6 @@ class HubSpotService
 
     /**
      * Write the SmartDoc search id onto the contact it was created for.
-     *
-     * One contact is one subject is one search, so this is the id of that
-     * contact's own search rather than the deal's list of all of them.
      */
     public function updateContactSmartDocSsid(string $contactId, string $ssid): array
     {
@@ -32,10 +29,6 @@ class HubSpotService
 
     /**
      * Write the SmartDoc search response onto the contact it belongs to.
-     *
-     * Takes the response either as the decoded array it arrives as or as a
-     * string already prepared by the caller, so the encoding is decided in one
-     * place rather than at each call site.
      */
     public function updateContactSmartDocResponse(string $contactId, array|string|null $response): array
     {
@@ -54,10 +47,6 @@ class HubSpotService
 
     /**
      * Write the AML search response onto the contact it belongs to.
-     *
-     * Takes the response either as the decoded array it arrives as or as a
-     * string already prepared by the caller, so the encoding is decided in one
-     * place rather than at each call site.
      */
     public function updateContactAmlResponse(string $contactId, array|string|null $response): array
     {
@@ -68,10 +57,6 @@ class HubSpotService
 
     /**
      * Patch properties onto a contact.
-     *
-     * Never throws, for the same reason the deal write does not: the search is
-     * already held on the webhook detail, so a write-back that fails costs the
-     * contact properties, not the record of the search.
      */
     protected function updateContactProperties(string $contactId, array $properties): array
     {
@@ -111,8 +96,6 @@ class HubSpotService
             // An ssid we have seen before keeps the date it was first written.
             'date_created' => data_get($searches, [$ssid, 'date_created']) ?? $this->dateProperty($date),
             'date_updated' => $this->dateProperty($date),
-            // Kept from the entry already on the deal when the caller has no
-            // contact to hand, so a status update never blanks it.
             'hubspot_contact_id' => $contactId ?? data_get($searches, [$ssid, 'hubspot_contact_id']),
         ];
 

@@ -3,16 +3,18 @@
 namespace App\Services\HubSpot;
 
 use App\Enums\WebhookDetailStatus;
+use App\Models\HubSpotWebhookEvent;
 use App\Repositories\Contracts\WebhookDetailRepositoryInterface;
 use App\Services\LogService;
 use App\Services\SmartSearch\AmlService;
 use App\Services\SmartSearch\Exceptions\SmartSearchException;
 use App\Services\SmartSearch\SmartDocService;
+use App\Support\HubSpotProperty;
 use Carbon\Carbon;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
-use Throwable;
 
 class HubSpotWebhookService
 {
@@ -26,20 +28,7 @@ class HubSpotWebhookService
      */
     protected const SMARTDOC_REQUIRED_FIELDS = ['first_name', 'last_name', 'building', 'town', 'postcode', 'date_of_birth', 'sex'];
 
-    /**
-     * Title the company owner is searched under. HubSpot owners are users
-     * rather than contacts, so they carry no salutation to read, and the AML
-     * endpoint will not accept the title blank.
-     */
     protected const OWNER_TITLE = 'Mr';
-
-    /**
-     * Association labels that make a contact an AML subject. Matched loosely
-     * against the labels on the contact's association, so "PSC (Person with
-     * Significant Control)" and "Non-executive Director" both count.
-     *
-     * A contact without one of these is verified with SmartDoc only.
-     */
     protected const AML_LABELS = ['director', 'psc'];
 
     /**
@@ -49,7 +38,7 @@ class HubSpotWebhookService
      * unaffected, so both can still run on the same deal.
      */
     protected const SEARCH_PROPERTIES = [
-        'smart_search' => ['smartdoc_ssid', 'smartdoc_status'],
+        'smart_search' => ['smartdoc_ssid', 'smartdoc_status', 'smartsearch_uk_individual_ssid'],
     ];
 
     public function __construct(
@@ -101,7 +90,11 @@ class HubSpotWebhookService
     {
         $type = $event['subscriptionType'] ?? 'unknown';
 
-        if ($this->isActionable($event)) {
+        if (! $this->isNewEvent($event)) {
+            return;
+        }
+
+        if ($type !== 'deal.propertyChange') {
             $this->logService->webhook("HubSpot: {$type}", $event);
         }
 
@@ -109,6 +102,56 @@ class HubSpotWebhookService
             'deal.propertyChange' => $this->handleDealPropertyChange($event),
             default => Log::debug('Unhandled HubSpot webhook event', ['type' => $type]),
         };
+    }
+
+    /**
+     * Whether this is the first time we have seen an event, claiming it if so.
+     *
+     * HubSpot retries a delivery it did not get a 2xx for in time, and sends
+     * the retry with the same eventId. Inserting that id against a unique
+     * column is what makes the claim safe: two deliveries racing each other
+     * both try to insert, and only one of them can win, so the searches behind
+     * the event run once however many copies of it arrive.
+     */
+    protected function isNewEvent(array $event): bool
+    {
+        $eventId = $event['eventId'] ?? null;
+
+        // Nothing to key on. Rather than drop the event, let it through and
+        // leave the deal property checks to catch a repeat of it.
+        if (blank($eventId)) {
+            Log::warning('HubSpot webhook event has no eventId to deduplicate on.', $event);
+
+            return true;
+        }
+
+        try {
+            $record = HubSpotWebhookEvent::firstOrCreate(
+                ['event_id' => $eventId],
+                [
+                    'object_id' => $event['objectId'] ?? null,
+                    'subscription_type' => $event['subscriptionType'] ?? null,
+                    'property_name' => $event['propertyName'] ?? null,
+                ],
+            );
+        } catch (UniqueConstraintViolationException) {
+            // The other delivery inserted between our select and our insert.
+            $record = null;
+        }
+
+        if (blank($record) || ! $record->wasRecentlyCreated) {
+            Log::debug('HubSpot webhook event already processed; skipping.', [
+                'eventId' => $eventId,
+                'objectId' => $event['objectId'] ?? null,
+                'subscriptionType' => $event['subscriptionType'] ?? null,
+                'propertyName' => $event['propertyName'] ?? null,
+                'attemptNumber' => $event['attemptNumber'] ?? null,
+            ]);
+
+            return false;
+        }
+
+        return true;
     }
 
     /**
@@ -156,6 +199,8 @@ class HubSpotWebhookService
             return;
         }
 
+        $this->logService->webhook('HubSpot: deal.propertyChange', $event);
+
         // $contacts = $this->fetchDealContacts((string) $dealId);
         $company = $this->fetchDealCompany((string) $dealId);
 
@@ -179,9 +224,6 @@ class HubSpotWebhookService
         // company is verified with SmartDoc alone.
         $amlContacts = $this->amlContacts($contacts);
 
-        // A deal with no contacts runs nothing for now; the company owner
-        // fallback is parked rather than dropped.
-        // : $this->runCompanyOwnerAmlSearch($company))
         $aml = $property === 'smart_search' && filled($amlContacts)
             ? $this->runAmlSearches($amlContacts)
             : [];
@@ -199,8 +241,6 @@ class HubSpotWebhookService
             $this->writeUkIndividualRequestDateToDeal((string) $dealId, $aml, $amlLog->log_group_id);
         }
 
-        // SmartDoc belongs to its own checkbox and runs off the same subjects.
-        // : $this->runCompanyOwnerSmartDocSearch($company))
         $smartDoc = $property === 'smart_search' && filled($contacts)
             ? $this->runSmartDocSearches($contacts)
             : [];
@@ -232,6 +272,10 @@ class HubSpotWebhookService
             $ssid = data_get($result, 'data.id');
 
             if (blank($ssid)) {
+                // Nothing to wait on, but the subject should still be able to
+                // see why their verification never started.
+                $this->writeSmartDocErrorsToContact($entry, $groupId);
+
                 continue;
             }
 
@@ -314,11 +358,6 @@ class HubSpotWebhookService
 
     /**
      * Write one AML search — its id and the response it came back with — onto
-     * the contact it was run for.
-     *
-     * A search created for the company owner has no contact behind it, and a
-     * subject that was skipped has no search, so either way there is nothing
-     * to write and the deal keeps the only record.
      */
     protected function writeAmlToContact(array $entry, ?string $groupId): void
     {
@@ -371,9 +410,6 @@ class HubSpotWebhookService
 
     /**
      * Write a SmartDoc search id onto the contact it was created for.
-     *
-     * A search created for the company owner has no contact behind it, so
-     * there is nothing to write to and the id stays on the deal alone.
      */
     protected function writeSmartDocSsidToContact(string $ssid, ?string $contactId, ?string $groupId): void
     {
@@ -387,6 +423,34 @@ class HubSpotWebhookService
             'contactId' => $contactId,
             'ssid' => $ssid,
             // updateContactSmartDocSsid() logs its own failure and returns empty.
+            'written' => filled($response),
+        ]);
+    }
+
+    /**
+     * Write a failed SmartDoc creation onto the contact it was attempted for.
+     *
+     * @param  array  $entry  one runSmartDocSearch() outcome
+     */
+    protected function writeSmartDocErrorsToContact(array $entry, ?string $groupId): void
+    {
+        $contactId = $entry['contactId'] ?? null;
+        $errors = $entry['errors'] ?? null;
+
+        // A company owner search has no contact, and an entry skipped for
+        // missing fields never reached SmartSearch to be answered.
+        if (blank($contactId) || blank($errors)) {
+            return;
+        }
+
+        $response = $this->hubSpotService->updateContactSmartDocResponse($contactId, ['errors' => $errors]);
+
+        $this->logService->forGroup($groupId)->webhook('HubSpot: contact smartdoc errors written', [
+            'contactId' => $contactId,
+            'status' => $entry['status'] ?? null,
+            'error' => $entry['error'] ?? null,
+            'errors' => $errors,
+            // updateContactSmartDocResponse() logs its own failure and returns empty.
             'written' => filled($response),
         ]);
     }
@@ -412,11 +476,6 @@ class HubSpotWebhookService
 
     /**
      * Write the SmartDoc search ids back onto the deal in HubSpot.
-     *
-     * A deal with several subjects creates several searches, and the deal holds
-     * one property, so the ids go on comma separated rather than the last one
-     * quietly overwriting the rest.
-     *
      * @param  array<int, string>  $ssids
      */
     protected function writeSmartDocSsidsToDeal(string $dealId, array $ssids, ?string $groupId): void
@@ -435,9 +494,6 @@ class HubSpotWebhookService
 
     /**
      * Ask SmartSearch to call us back when a SmartDoc search completes.
-     *
-     * Never throws: the detail is already stored as pending, so a registration
-     * that fails leaves a record to chase rather than losing the search.
      */
     protected function registerSmartDocWebhook(string $ssid, ?string $groupId): void
     {
@@ -685,8 +741,8 @@ class HubSpotWebhookService
             'first_name' => $properties['firstname'] ?? null,
             'middle_name' => null,
             'last_name' => $properties['lastname'] ?? null,
-            'date_of_birth' => $this->normaliseDate($properties['dob_date_of_birth'] ?? null),
-            'sex' => $this->normaliseSex($properties['gender'] ?? null),
+            'date_of_birth' => HubSpotProperty::date($properties['dob_date_of_birth'] ?? null),
+            'sex' => HubSpotProperty::sex($properties['gender'] ?? null),
             'building' => $properties['address'] ?? null,
             'street_1' => $properties['address'] ?? null,
             'town' => $properties['city'] ?? null,
@@ -694,74 +750,6 @@ class HubSpotWebhookService
             'postcode' => $properties['zip'] ?? null,
             'country' => $properties['country'] ?? 'GBR',
         ];
-    }
-
-    /**
-     * Normalise a HubSpot date property to the Y-m-d SmartDoc expects.
-     *
-     * Date properties come back as either an ISO date or epoch milliseconds
-     * depending on how the property was written.
-     */
-    protected function normaliseDate(mixed $value): ?string
-    {
-        if (blank($value)) {
-            return null;
-        }
-
-        try {
-            if (is_numeric($value)) {
-                return Carbon::createFromTimestampMs((int) $value)->format('Y-m-d');
-            }
-
-            return $this->normaliseSlashedDate(trim((string) $value))
-                ?? Carbon::parse((string) $value)->format('Y-m-d');
-        } catch (Throwable) {
-            return null;
-        }
-    }
-
-    /**
-     * Normalise a slash separated date, working out which part is the day.
-     *
-     * Carbon reads slashed dates as m/d/Y, so 17/11/2004 would throw and a
-     * genuine 11/17/2004 would be read correctly by luck alone. A part above 12
-     * can only be the day, which settles most dates; where both parts could be
-     * either, d/m/Y wins, as HubSpot holds these in UK format.
-     *
-     * Returns null for anything that is not a slashed date, leaving the caller
-     * to parse it as before.
-     */
-    protected function normaliseSlashedDate(string $value): ?string
-    {
-        if (! preg_match('#^(\d{1,2})/(\d{1,2})/(\d{4})$#', $value, $matches)) {
-            return null;
-        }
-
-        [, $first, $second, $year] = array_map('intval', $matches);
-
-        // A day/month pair the other way round: 11/17/2004.
-        [$day, $month] = $second > 12 ? [$second, $first] : [$first, $second];
-
-        if (! checkdate($month, $day, $year)) {
-            return null;
-        }
-
-        return Carbon::create($year, $month, $day)->format('Y-m-d');
-    }
-
-    /**
-     * Normalise a HubSpot gender property to the SmartDoc sex values.
-     *
-     * Anything that is not recognisably male or female is dropped rather
-     * than guessed at, so the search is skipped instead of sent wrong.
-     */
-    protected function normaliseSex(mixed $value): ?string
-    {
-        return match (strtolower(trim((string) $value))) {
-            'male', 'm' => 'male',
-            'female', 'f' => 'female',
-            default => null,
-        };
     }
 
     /**
@@ -795,10 +783,6 @@ class HubSpotWebhookService
 
     /**
      * Run one SmartSearch AML search and describe the outcome.
-     *
-     * Never throws: a subject that cannot be searched is recorded alongside
-     * the ones that could, so one bad subject does not lose the rest.
-     *
      * @param  array  $meta  identifying fields merged into the result
      * @param  array  $required  fields that must be present to search
      */
@@ -838,8 +822,6 @@ class HubSpotWebhookService
         }
 
         $response = $client->get("/crm/v3/objects/deals/{$dealId}", [
-            // The smartdoc/smartsearch properties are what we wrote on a previous
-            // run; they are read back to tell an already searched deal apart.
             'properties' => 'dealname,amount,dealstage,pipeline,closedate,createdate,hubspot_owner_id,dealtype,'
                 .implode(',', array_merge(...array_values(self::SEARCH_PROPERTIES))),
         ]);
@@ -859,8 +841,6 @@ class HubSpotWebhookService
         return [
             'id' => $response->json('id'),
             'properties' => $properties,
-            // Resolved here rather than left as an id, so a deal with no company
-            // still has a named owner to fall back on as the search subject.
             'owner' => $this->fetchOwner($properties['hubspot_owner_id'] ?? null),
         ];
     }
@@ -1047,9 +1027,6 @@ class HubSpotWebhookService
             'firstName' => $response->json('firstName'),
             'lastName' => $response->json('lastName'),
             'userId' => $response->json('userId'),
-            // Owners are HubSpot users and usually carry no address of their
-            // own; passed through so that an owner that does is searched at it
-            // rather than at the company's.
             'address' => $response->json('address'),
             'city' => $response->json('city'),
             'zip' => $response->json('zip'),
