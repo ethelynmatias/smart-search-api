@@ -105,12 +105,6 @@ class HubSpotWebhookService
     }
 
     /**
-     * Whether this is the first time we have seen an event, claiming it if so.
-     *
-     * HubSpot retries a delivery it did not get a 2xx for in time, and sends
-     * the retry with the same eventId. Inserting that id against a unique
-     * column is what makes the claim safe: two deliveries racing each other
-     * both try to insert, and only one of them can win, so the searches behind
      * the event run once however many copies of it arrive.
      */
     protected function isNewEvent(array $event): bool
