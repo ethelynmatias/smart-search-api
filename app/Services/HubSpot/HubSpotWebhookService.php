@@ -892,18 +892,36 @@ class HubSpotWebhookService
                 $response,
             );
 
+            $status = $this->fraudCheckStatus($entry);
+
+            $statusWritten = filled($status)
+                ? $this->hubSpotService->updateContactFraudStatus((string) $contactId, $status)
+                : [];
+
             $this->logService->forGroup($groupId)->webhook('HubSpot: contact fraud check written', [
                 'dealId' => $dealId,
                 'contactId' => $contactId,
                 'fraudCheckId' => $fraudCheckId,
-                'outcome' => filled($fraudCheckId) ? 'success' : 'failed',
-                // Zero means the search this check ran alongside was skipped, so
-                // there is no row of its own holding the id.
+                'status' => $status,
+                'statusWritten' => filled($statusWritten),
                 'detailsSaved' => $saved,
-                // updateContactFraudCheckResponse() logs its own failure and returns empty.
                 'responseWritten' => filled($written),
             ]);
         }
+    }
+
+    protected function fraudCheckStatus(array $entry): ?string
+    {
+        $outcome = collect(data_get($entry, 'result.included', []))
+            ->firstWhere('type', 'fraud-check-result');
+
+        return data_get($outcome, 'attributes.outcome')
+            ?? match (true) {
+                filled($entry['skipped'] ?? null) => 'skipped',
+                filled($entry['error'] ?? null) => 'failed',
+                filled(data_get($entry, 'result.data.id')) => data_get($entry, 'result.data.meta.status'),
+                default => null,
+            };
     }
 
     /**

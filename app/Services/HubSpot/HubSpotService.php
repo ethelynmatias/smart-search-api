@@ -66,6 +66,16 @@ class HubSpotService
     }
 
     /**
+     * Write the outcome of the fraud check onto the contact it was run for.
+     */
+    public function updateContactFraudStatus(string $contactId, string $status): array
+    {
+        return $this->updateContactProperties($contactId, [
+            'smart_search_fraud_status' => $status,
+        ]);
+    }
+
+    /**
      * Patch properties onto a contact.
      */
     protected function updateContactProperties(string $contactId, array $properties): array
