@@ -23,7 +23,11 @@ class LogRepository implements LogRepositoryInterface
     }
 
     /**
-     * Paginate logs, newest first, optionally filtered by type and/or group.
+     * Paginate logs, optionally filtered by type and/or group.
+     *
+     * The index is a browse list, so it runs newest first. A group or a
+     * search is the trail of one flow instead, and reads oldest first so the
+     * steps run top to bottom in the order they happened.
      *
      * Without a group filter, only the latest record of each group is shown,
      * with a `group_count` of how many records the group holds.
@@ -56,7 +60,7 @@ class LogRepository implements LogRepositoryInterface
                             ->whereColumn('grouped.log_group_id', 'logs.log_group_id'),
                     ]);
             })
-            ->latest()
+            ->orderBy('id', $logGroupId || $search ? 'asc' : 'desc')
             ->paginate($perPage)
             ->withQueryString();
     }
