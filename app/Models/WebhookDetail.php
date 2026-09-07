@@ -12,6 +12,7 @@ class WebhookDetail extends Model
         'deal_id',
         'hubspot_contact_id',
         'ssid',
+        'fraud_check_id',
         'search_subject_id',
         'type',
         'status',

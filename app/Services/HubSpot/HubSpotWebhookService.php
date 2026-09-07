@@ -250,6 +250,8 @@ class HubSpotWebhookService
         ]);
 
         $this->recordSmartDocDetails((string) $dealId, $smartDoc, $smartDocLog->log_group_id);
+
+        // Do fraud check here
     }
 
     /**
@@ -548,6 +550,7 @@ class HubSpotWebhookService
         foreach ($contacts as $contact) {
             $properties = $contact['properties'] ?? [];
 
+            // search on aml service
             $results[] = $this->runAmlSearch(
                 [
                     'title' => $properties['honorifictitle'] ?? null,

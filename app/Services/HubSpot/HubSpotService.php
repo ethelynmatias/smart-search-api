@@ -56,6 +56,16 @@ class HubSpotService
     }
 
     /**
+     * Write the fraud check response onto the contact it belongs to.
+     */
+    public function updateContactFraudCheckResponse(string $contactId, array|string|null $response): array
+    {
+        return $this->updateContactProperties($contactId, [
+            'smart_search_fraud_check_response' => is_array($response) ? json_encode($response) : (string) $response,
+        ]);
+    }
+
+    /**
      * Patch properties onto a contact.
      */
     protected function updateContactProperties(string $contactId, array $properties): array
@@ -104,11 +114,6 @@ class HubSpotService
         ]);
     }
 
-    /**
-     * The SmartDoc statuses already recorded on a deal, keyed by ssid.
-     *
-     * @return array<string, array{status: string, date_created: string, date_updated: string, hubspot_contact_id: ?string}>
-     */
     protected function smartDocStatuses(string $dealId): array
     {
         $value = $this->dealProperty($dealId, 'smartdoc_status');
