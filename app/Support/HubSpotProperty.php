@@ -5,14 +5,6 @@ namespace App\Support;
 use Carbon\Carbon;
 use Throwable;
 
-/**
- * Read HubSpot property values into the shapes SmartSearch expects.
- *
- * HubSpot holds these loosely: a date property comes back as an ISO date or as
- * epoch milliseconds depending on how it was written, and a gender property is
- * whatever was typed into it. Normalising in one place keeps every caller
- * sending SmartSearch the same thing.
- */
 class HubSpotProperty
 {
     /**
@@ -81,5 +73,43 @@ class HubSpotProperty
         }
 
         return Carbon::create($year, $month, $day)->format('Y-m-d');
+    }
+
+    /**
+     * Normalise a HubSpot phone property to the international format
+     * SmartSearch validates against.
+     *
+     * HubSpot stores whatever was typed, so the same number arrives as
+     * "+44 7700 900123", "07700900123" or "0044 7700 900123". SmartSearch
+     * documents an international format but rejects the separators, so
+     * everything but the digits and a leading plus is stripped.
+     *
+     * @param  string|null  $country  the subject's country, since a number
+     *                                written in national form only says which
+     *                                country it belongs to in context
+     */
+    public static function phone(mixed $value, ?string $country = 'GBR'): ?string
+    {
+        $digits = preg_replace('/[^\d+]/', '', (string) $value) ?? '';
+
+        // A plus anywhere but the front is a typo, not a country code.
+        $digits = str_starts_with($digits, '+')
+            ? '+'.str_replace('+', '', $digits)
+            : str_replace('+', '', $digits);
+
+        // 00 is the same intent as +, written the way a handset dials it.
+        if (str_starts_with($digits, '00')) {
+            $digits = '+'.substr($digits, 2);
+        }
+
+        // A leading zero is a national number, which only means something once
+        // the country is known. Only GB is mapped: guessing at the rest would
+        // turn an unrecognised number into a wrong one.
+        if (str_starts_with($digits, '0') && in_array(strtoupper((string) $country), ['GBR', 'GB', 'UK'], true)) {
+            $digits = '+44'.substr($digits, 1);
+        }
+
+        // Long enough to be a number rather than an extension or a stray digit.
+        return strlen(ltrim($digits, '+')) >= 7 ? $digits : null;
     }
 }

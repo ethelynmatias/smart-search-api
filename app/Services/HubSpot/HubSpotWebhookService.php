@@ -14,6 +14,7 @@ use App\Support\HubSpotProperty;
 use Carbon\Carbon;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\Request;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
@@ -30,10 +31,9 @@ class HubSpotWebhookService
     protected const SMARTDOC_REQUIRED_FIELDS = ['first_name', 'last_name', 'building', 'town', 'postcode', 'date_of_birth', 'sex'];
 
     /**
-     * Contact fields the fraud check cannot run without. The date of birth is
-     * not among them: the check runs without one, on the name and address.
+     * Contact fields the fraud check cannot run without.
      */
-    protected const FRAUD_CHECK_REQUIRED_FIELDS = ['first_name', 'last_name', 'address1', 'city', 'postcode'];
+    protected const FRAUD_CHECK_REQUIRED_FIELDS = ['title', 'first_name', 'last_name', 'address1', 'city', 'postcode', 'mobile'];
 
     protected const OWNER_TITLE = 'Mr';
 
@@ -705,12 +705,8 @@ class HubSpotWebhookService
                 $this->smartDocData($properties),
                 [
                     'contactId' => $contact['id'] ?? null,
-                    // Both forms: an association can carry more than one label,
-                    // and the payload is what the callback reads back later.
                     'label' => $contact['label'] ?? null,
                     'labels' => $contact['labels'] ?? [],
-                    // Carried through so the completion callback can notify the
-                    // subject without fetching the contact from HubSpot again.
                     'email' => $properties['email'] ?? null,
                     'phone' => $properties['phone'] ?? null,
                 ],
@@ -751,9 +747,6 @@ class HubSpotWebhookService
 
     /**
      * Map HubSpot properties onto the SmartDoc payload fields.
-     *
-     * Every key SmartDocService reads is present, so a property HubSpot does
-     * not hold is sent as null rather than raising an undefined key warning.
      */
     protected function smartDocData(array $properties): array
     {
@@ -821,8 +814,18 @@ class HubSpotWebhookService
                     'last_name' => $properties['lastname'] ?? null,
                     'address1' => $properties['address'] ?? null,
                     'city' => $properties['city'] ?? null,
+                    'region' => $properties['state'] ?? null,
                     'postcode' => $properties['zip'] ?? null,
+                    'country' => $properties['country'] ?? 'GBR',
                     'dob' => HubSpotProperty::date($properties['dob_date_of_birth'] ?? null),
+                    'mobile' => HubSpotProperty::phone(
+                        $this->firstFilled(
+                            $properties['mobilephone'] ?? null,
+                            $properties['phone'] ?? null,
+                        ),
+                        $properties['country'] ?? 'GBR',
+                    ),
+                    'email' => $properties['email'] ?? null,
                 ],
                 [
                     'contactId' => $contact['id'] ?? null,
@@ -837,9 +840,6 @@ class HubSpotWebhookService
 
     /**
      * Run one fraud check and describe the outcome.
-     *
-     * Never throws, for the same reason as the AML and SmartDoc searches: one
-     * contact missing a postcode should not stop the rest of the deal.
      */
     protected function runFraudCheck(array $data, array $meta): array
     {
@@ -873,27 +873,30 @@ class HubSpotWebhookService
     {
         foreach ($fraudChecks as $entry) {
             $contactId = $entry['contactId'] ?? null;
-            $fraudCheckId = data_get($entry, 'result.data.id');
 
-            if (blank($contactId) || blank($fraudCheckId)) {
+            if (blank($contactId)) {
                 continue;
             }
 
-            $saved = $this->webhookDetails->saveFraudCheckId(
-                $dealId,
-                (string) $contactId,
-                (string) $fraudCheckId,
-            );
+            $fraudCheckId = data_get($entry, 'result.data.id');
+
+            // Only a check that came back with an id has anything to hold onto.
+            $saved = filled($fraudCheckId)
+                ? $this->webhookDetails->saveFraudCheckId($dealId, (string) $contactId, (string) $fraudCheckId)
+                : 0;
+
+            $response = $entry['result'] ?? Arr::only($entry, ['skipped', 'missing', 'error', 'errors', 'status']);
 
             $written = $this->hubSpotService->updateContactFraudCheckResponse(
                 (string) $contactId,
-                $entry['result'] ?? null,
+                $response,
             );
 
             $this->logService->forGroup($groupId)->webhook('HubSpot: contact fraud check written', [
                 'dealId' => $dealId,
                 'contactId' => $contactId,
                 'fraudCheckId' => $fraudCheckId,
+                'outcome' => filled($fraudCheckId) ? 'success' : 'failed',
                 // Zero means the search this check ran alongside was skipped, so
                 // there is no row of its own holding the id.
                 'detailsSaved' => $saved,
@@ -1034,7 +1037,7 @@ class HubSpotWebhookService
         $response = $client->post('/crm/v3/objects/contacts/batch/read', [
             // honorifictitle/address/city/zip feed the AML search;
             // dob_date_of_birth/gender feed the SmartDoc verification.
-            'properties' => ['firstname', 'lastname', 'email', 'phone', 'company', 'lifecyclestage', 'honorifictitle', 'address', 'city', 'zip', 'state', 'country', 'dob_date_of_birth', 'gender'],
+            'properties' => ['firstname', 'lastname', 'email', 'phone', 'mobilephone', 'company', 'lifecyclestage', 'honorifictitle', 'address', 'city', 'zip', 'state', 'country', 'dob_date_of_birth', 'gender'],
             'inputs' => $contactIds->map(fn ($id) => ['id' => (string) $id])->all(),
         ]);
 
