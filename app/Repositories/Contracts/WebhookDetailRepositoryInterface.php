@@ -30,4 +30,11 @@ interface WebhookDetailRepositoryInterface
      * @return int the number of details updated
      */
     public function markStatusBySsid(string $ssid, WebhookDetailStatus $status, ?array $payload = null): int;
+
+    /**
+     * Attach a fraud check id to the search already held for a deal's contact.
+     *
+     * @return int the number of details updated
+     */
+    public function saveFraudCheckId(string $dealId, string $contactId, string $fraudCheckId): int;
 }

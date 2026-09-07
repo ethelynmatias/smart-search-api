@@ -8,6 +8,7 @@ use App\Repositories\Contracts\WebhookDetailRepositoryInterface;
 use App\Services\LogService;
 use App\Services\SmartSearch\AmlService;
 use App\Services\SmartSearch\Exceptions\SmartSearchException;
+use App\Services\SmartSearch\FraudCheckService;
 use App\Services\SmartSearch\SmartDocService;
 use App\Support\HubSpotProperty;
 use Carbon\Carbon;
@@ -28,7 +29,14 @@ class HubSpotWebhookService
      */
     protected const SMARTDOC_REQUIRED_FIELDS = ['first_name', 'last_name', 'building', 'town', 'postcode', 'date_of_birth', 'sex'];
 
+    /**
+     * Contact fields the fraud check cannot run without. The date of birth is
+     * not among them: the check runs without one, on the name and address.
+     */
+    protected const FRAUD_CHECK_REQUIRED_FIELDS = ['first_name', 'last_name', 'address1', 'city', 'postcode'];
+
     protected const OWNER_TITLE = 'Mr';
+
     protected const AML_LABELS = ['director', 'psc'];
 
     /**
@@ -45,6 +53,7 @@ class HubSpotWebhookService
         protected LogService $logService,
         protected AmlService $amlService,
         protected SmartDocService $smartDocService,
+        protected FraudCheckService $fraudCheckService,
         protected WebhookDetailRepositoryInterface $webhookDetails,
         protected HubSpotAuthService $hubSpotAuth,
         protected HubSpotService $hubSpotService,
@@ -251,7 +260,21 @@ class HubSpotWebhookService
 
         $this->recordSmartDocDetails((string) $dealId, $smartDoc, $smartDocLog->log_group_id);
 
-        // Do fraud check here
+        // Runs after the SmartDoc details are recorded, since the fraud check id
+        // joins the row that search created rather than opening one of its own.
+        $fraudChecks = $this->runFraudChecks($contacts);
+
+        if (blank($fraudChecks)) {
+            return;
+        }
+
+        $fraudCheckLog = $this->logService->webhook("HubSpot: deal {$property} fraud check", [
+            'dealId' => $dealId,
+            'propertyName' => $property,
+            'fraudChecks' => $fraudChecks,
+        ]);
+
+        $this->recordFraudCheckDetails((string) $dealId, $fraudChecks, $fraudCheckLog->log_group_id);
     }
 
     /**
@@ -472,6 +495,7 @@ class HubSpotWebhookService
 
     /**
      * Write the SmartDoc search ids back onto the deal in HubSpot.
+     *
      * @param  array<int, string>  $ssids
      */
     protected function writeSmartDocSsidsToDeal(string $dealId, array $ssids, ?string $groupId): void
@@ -779,7 +803,109 @@ class HubSpotWebhookService
     }
 
     /**
+     * Run a fraud check for each contact and describe every outcome.
+     *
+     * @return array<int, array> one entry per contact, in the order given
+     */
+    protected function runFraudChecks(array $contacts): array
+    {
+        $results = [];
+
+        foreach ($contacts as $contact) {
+            $properties = $contact['properties'] ?? [];
+
+            $results[] = $this->runFraudCheck(
+                [
+                    'title' => $properties['honorifictitle'] ?? null,
+                    'first_name' => $properties['firstname'] ?? null,
+                    'last_name' => $properties['lastname'] ?? null,
+                    'address1' => $properties['address'] ?? null,
+                    'city' => $properties['city'] ?? null,
+                    'postcode' => $properties['zip'] ?? null,
+                    'dob' => HubSpotProperty::date($properties['dob_date_of_birth'] ?? null),
+                ],
+                [
+                    'contactId' => $contact['id'] ?? null,
+                    'label' => $contact['label'] ?? null,
+                    'labels' => $contact['labels'] ?? [],
+                ],
+            );
+        }
+
+        return $results;
+    }
+
+    /**
+     * Run one fraud check and describe the outcome.
+     *
+     * Never throws, for the same reason as the AML and SmartDoc searches: one
+     * contact missing a postcode should not stop the rest of the deal.
+     */
+    protected function runFraudCheck(array $data, array $meta): array
+    {
+        $missing = array_values(array_filter(
+            self::FRAUD_CHECK_REQUIRED_FIELDS,
+            fn (string $field) => blank($data[$field] ?? null),
+        ));
+
+        if (filled($missing)) {
+            return [...$meta, 'skipped' => 'missing required fraud check fields', 'missing' => $missing];
+        }
+
+        try {
+            return [...$meta, 'result' => $this->fraudCheckService->create($data)];
+        } catch (SmartSearchException $e) {
+            Log::warning('Fraud check failed for HubSpot subject.', [
+                ...$meta,
+                'status' => $e->status,
+                'error' => $e->getMessage(),
+            ]);
+
+            return [...$meta, 'error' => $e->getMessage(), 'status' => $e->status, 'errors' => $e->errors];
+        }
+    }
+
+    /**
+     * Hold each fraud check id against the search it ran alongside, and write
+     * the response it came back with onto the contact it was run for.
+     */
+    protected function recordFraudCheckDetails(string $dealId, array $fraudChecks, ?string $groupId): void
+    {
+        foreach ($fraudChecks as $entry) {
+            $contactId = $entry['contactId'] ?? null;
+            $fraudCheckId = data_get($entry, 'result.data.id');
+
+            if (blank($contactId) || blank($fraudCheckId)) {
+                continue;
+            }
+
+            $saved = $this->webhookDetails->saveFraudCheckId(
+                $dealId,
+                (string) $contactId,
+                (string) $fraudCheckId,
+            );
+
+            $written = $this->hubSpotService->updateContactFraudCheckResponse(
+                (string) $contactId,
+                $entry['result'] ?? null,
+            );
+
+            $this->logService->forGroup($groupId)->webhook('HubSpot: contact fraud check written', [
+                'dealId' => $dealId,
+                'contactId' => $contactId,
+                'fraudCheckId' => $fraudCheckId,
+                // Zero means the search this check ran alongside was skipped, so
+                // there is no row of its own holding the id.
+                'detailsSaved' => $saved,
+                // updateContactFraudCheckResponse() logs its own failure and returns empty.
+                'responseWritten' => filled($written),
+            ]);
+        }
+    }
+
+    /**
      * Run one SmartSearch AML search and describe the outcome.
+     *
      * @param  array  $meta  identifying fields merged into the result
      * @param  array  $required  fields that must be present to search
      */
