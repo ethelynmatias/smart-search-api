@@ -443,3 +443,92 @@ pre.payload {
     border: 1px solid #e2e8f0;
     border-radius: 0.5rem;
 }
+
+/* Toolbar on the storage log page: the file and level pickers submit on
+   change, so they sit in the same row as the search rather than apart. */
+.toolbar {
+    display: flex;
+    align-items: flex-end;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-bottom: 1rem;
+}
+
+.field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.field > span {
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #64748b;
+}
+
+.field select {
+    font: inherit;
+    font-size: 0.8rem;
+    color: #0f172a;
+    background: #ffffff;
+    border: 1px solid #cbd5e1;
+    border-radius: 0.4rem;
+    padding: 0.35rem 0.6rem;
+    max-width: 18rem;
+}
+
+.field select:focus {
+    outline: none;
+    border-color: #ff7a59;
+}
+
+/* Monolog levels, ranked the way the reader triages them: red for the ones
+   that need answering, amber for the ones worth a look, grey for the rest. */
+.badge.emergency,
+.badge.alert,
+.badge.critical,
+.badge.error {
+    color: #dc2626;
+    border: 1px solid #dc2626;
+}
+
+.badge.warning,
+.badge.notice {
+    color: #b45309;
+    border: 1px solid #b45309;
+}
+
+.badge.info {
+    color: #0284c7;
+    border: 1px solid #0284c7;
+}
+
+.badge.debug {
+    color: #64748b;
+    border: 1px solid #cbd5e1;
+}
+
+.timeline-dot.emergency,
+.timeline-dot.alert,
+.timeline-dot.critical,
+.timeline-dot.error {
+    border-color: #dc2626;
+}
+
+.timeline-dot.warning,
+.timeline-dot.notice {
+    border-color: #b45309;
+}
+
+.timeline-dot.info {
+    border-color: #0284c7;
+}
+
+/* A trace is wrapped like every other payload, but its lines are long enough
+   that breaking mid-word turns a path into noise. */
+.timeline-card pre.payload {
+    word-break: normal;
+    overflow-wrap: anywhere;
+}

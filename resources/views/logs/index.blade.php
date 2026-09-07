@@ -22,6 +22,7 @@
             <header>
                 <h1>Logs</h1>
                 <nav class="filters">
+                    <a href="{{ route('logs.storage', ['token' => $token]) }}">Storage</a>
                     <a href="{{ route('logs.index', ['token' => $token]) }}" @class(['active' => ! request('type')])>All</a>
                     @foreach ($types as $type)
                         <a
