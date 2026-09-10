@@ -540,17 +540,6 @@ class HubSpotWebhookService
         }
     }
 
-    /**
-     * The search properties already filled in on a deal for the checkbox that
-     * triggered this run, keyed by property. ss_smartdoc looks at the smartdoc
-     * properties, ss_individual_uk at the UK individual ssid, so one search
-     * having run does not block the other.
-     *
-     * Empty for a deal that has not been searched, which is also what a deal we
-     * could not fetch looks like — better to search twice than not at all.
-     *
-     * @return array<string, string>
-     */
     protected function searchPropertiesOn(array $deal, string $trigger): array
     {
         $properties = $deal['properties'] ?? [];
