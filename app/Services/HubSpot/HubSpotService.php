@@ -4,9 +4,16 @@ namespace App\Services\HubSpot;
 
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 class HubSpotService
 {
+    /**
+     * The value written onto a contact in place of a search id when the search
+     * was skipped, and so the one value a real id may replace.
+     */
+    public const SKIPPED = 'skipped';
+
     public function __construct(
         protected HubSpotAuthService $auth,
     ) {}
@@ -20,11 +27,36 @@ class HubSpotService
     }
 
     /**
-     * Write the SmartDoc search id onto the contact it was created for.
+     * Write the SmartDoc search id onto the contact it was created for,
+     * without disturbing a search already held there.
+     *
+     * A contact whose last attempt was skipped holds no real search, so that
+     * value is written over the same way an empty property is.
      */
     public function updateContactSmartDocSsid(string $contactId, string $ssid): array
     {
+        $existing = $this->contactProperty($contactId, 'smartdoc_ssid');
+
+        if (filled($existing) && ! $this->isSkipped($existing)) {
+            Log::debug('HubSpot contact already holds a smartdoc ssid; keeping it.', [
+                'contactId' => $contactId,
+                'smartdocSsid' => $existing,
+                'ssid' => $ssid,
+            ]);
+
+            return [];
+        }
+
         return $this->updateContactProperties($contactId, ['smartdoc_ssid' => $ssid]);
+    }
+
+    /**
+     * Whether a property holds one of the markers we write in place of a
+     * search id when the search never ran.
+     */
+    protected function isSkipped(string $value): bool
+    {
+        return Str::lower(trim($value)) === self::SKIPPED;
     }
 
     /**
@@ -163,6 +195,35 @@ class HubSpotService
         return $this->updateDealProperties($dealId, [
             'smartsearch_uk_individual_ssid' => $ssids->implode(','),
         ]);
+    }
+
+    /**
+     * Read one property off a contact.
+     */
+    protected function contactProperty(string $contactId, string $property): ?string
+    {
+        $client = $this->auth->client("fetch contact {$property}");
+
+        if (blank($client)) {
+            return null;
+        }
+
+        $response = $client->get("/crm/v3/objects/contacts/{$contactId}", [
+            'properties' => $property,
+        ]);
+
+        if ($response->failed()) {
+            Log::warning('Failed to read a property off the HubSpot contact.', [
+                'contactId' => $contactId,
+                'property' => $property,
+                'status' => $response->status(),
+                'body' => $response->json(),
+            ]);
+
+            return null;
+        }
+
+        return $response->json("properties.{$property}");
     }
 
     /**
