@@ -15,8 +15,9 @@ class StorageLogController extends Controller
     /**
      * Display the entries of one file under storage/logs.
      *
-     * Guarded and headed the same way as the database log page: the url carries
-     * the access token, and a stack trace names paths and query values that no
+     * Guarded the same way as the database log page, and kept out of search
+     * engines by the same PreventIndexing route middleware: the url carries the
+     * access token, and a stack trace names paths and query values that no
      * crawler should hold on to.
      */
     public function index(Request $request, string $token): Response
@@ -35,18 +36,14 @@ class StorageLogController extends Controller
         $level = trim((string) $request->query('level'));
         $search = trim((string) $request->query('q'));
 
-        return response()
-            ->view('logs.storage', [
-                'token' => $token,
-                'files' => $files,
-                'file' => $file,
-                'level' => $level,
-                'search' => $search,
-                'levels' => $this->reader->levels($file),
-                'entries' => $this->reader->paginate($file, $level, $search),
-            ])
-            ->header('X-Robots-Tag', 'noindex, nofollow, noarchive, nosnippet, noimageindex')
-            ->header('Referrer-Policy', 'no-referrer')
-            ->header('Cache-Control', 'no-store, private');
+        return response()->view('logs.storage', [
+            'token' => $token,
+            'files' => $files,
+            'file' => $file,
+            'level' => $level,
+            'search' => $search,
+            'levels' => $this->reader->levels($file),
+            'entries' => $this->reader->paginate($file, $level, $search),
+        ]);
     }
 }

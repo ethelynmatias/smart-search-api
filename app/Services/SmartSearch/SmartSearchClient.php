@@ -34,6 +34,23 @@ class SmartSearchClient
     }
 
     /**
+     * Download a binary file, such as a document PDF, from the SmartSearch API.
+     *
+     * @throws SmartSearchException
+     */
+    public function download(string $endpoint): Response
+    {
+        $response = $this->unauthenticated()
+            ->accept('application/pdf')
+            ->withToken($this->auth->token())
+            ->get($endpoint);
+
+        throw_if($response->failed(), fn () => SmartSearchException::requestFailed($endpoint, $response));
+
+        return $response;
+    }
+
+    /**
      * Build a request against the SmartSearch API without authentication.
      *
      * @throws SmartSearchException

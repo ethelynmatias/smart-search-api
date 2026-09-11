@@ -2,6 +2,7 @@
 
 namespace App\Services\SmartSearch;
 
+use Illuminate\Http\Client\Response;
 use stdClass;
 
 class SmartDocService
@@ -145,5 +146,73 @@ class SmartDocService
                 // 'meta' => new stdClass,
             ],
         ])->json();
+    }
+
+    /**
+     * Look up a UK business by its Companies House registration number.
+     *
+     * @param  string  $businessType  e.g. ltd
+     */
+    public function findUkBusiness(string $crn, string $businessType = 'ltd'): array
+    {
+        return $this->client->post('/v3/ukbusiness/find', [
+            'data' => [
+                'type' => 'find-uk-business',
+                'attributes' => [
+                    'business_type' => $businessType,
+                    'crn' => $crn,
+                ],
+            ],
+        ])->json();
+    }
+
+    /* Fetch all documents */
+    public function listAllDocuments(
+        string $subject,
+        string $cabinet,
+        string $category,
+        string $documentType,
+        string $retrieved,
+        int $page = 1,
+        int $size = 25,
+        ?string $include = 'types,categories',
+    ): array {
+        $size = min($size, 25);
+
+        $query = [
+            'filter[subject]' => $subject,
+            'filter[cabinet]' => $cabinet,
+            'filter[category]' => $category,
+            'filter[document-type]' => $documentType,
+            'filter[retrieved]' => $retrieved,
+            'page[number]' => $page,
+            'page[size]' => $size,
+        ];
+
+        if (filled($include)) {
+            $query['include'] = $include;
+        }
+
+        return $this->client
+            ->get('/v3/document', $query)
+            ->json();
+    }
+
+    /**
+     * Get a link to a document's PDF.
+     */
+    public function getPdfLink(string $documentId): array
+    {
+        return $this->client
+            ->get("/v3/document/{$documentId}/pdf-link")
+            ->json();
+    }
+
+    /**
+     * Download a document's PDF as a binary file.
+     */
+    public function getPdf(string $documentId): Response
+    {
+        return $this->client->download("/v3/document/{$documentId}/pdf");
     }
 }
