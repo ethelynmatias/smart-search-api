@@ -13,12 +13,7 @@ class SmartSearchController extends Controller
         protected SmartDocService $smartDocService,
     ) {}
 
-    /**
-     * Look up a company, then pull the PDF link and PDF of each of its documents.
-     *
-     * Guarded by the log page's access token, as the documents carry personal
-     * data. Prints the raw responses for now.
-     */
+
     public function documents(string $token): Response
     {
         $accessToken = config('logs.access_token');
@@ -44,6 +39,7 @@ class SmartSearchController extends Controller
             return $this->printed($output);
         }
 
+        /*
         $documents = $this->attempt(fn () => $this->smartDocService->listAllDocuments(
             subject: $subjectId,
             cabinet: 'company',
@@ -73,13 +69,23 @@ class SmartSearchController extends Controller
             ];
         }
 
-        return $this->printed($output);
+        return $this->printed($output); */
     }
 
     /**
-     * Run one SmartSearch call, returning its error in place of throwing so
-     * every step's outcome is printed.
+     * List the document categories available to the account.
      */
+    public function documentCategories(string $token): Response
+    {
+        $accessToken = config('logs.access_token');
+
+        abort_unless(filled($accessToken) && hash_equals($accessToken, $token), 404);
+
+        return $this->printed([
+            'categories' => $this->attempt(fn () => $this->smartDocService->listCategories()),
+        ]);
+    }
+
     protected function attempt(Closure $call): mixed
     {
         try {

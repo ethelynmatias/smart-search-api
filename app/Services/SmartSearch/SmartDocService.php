@@ -199,6 +199,21 @@ class SmartDocService
     }
 
     /**
+     * Fetch the document categories available to the account.
+     */
+    public function listCategories(int $page = 1, int $size = 25): array
+    {
+        $size = min($size, 25);
+
+        return $this->client
+            ->get('/v3/document/categories', [
+                'page[number]' => $page,
+                'page[size]' => $size,
+            ])
+            ->json();
+    }
+
+    /**
      * Get a link to a document's PDF.
      */
     public function getPdfLink(string $documentId): array

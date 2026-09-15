@@ -14,4 +14,5 @@ Route::middleware(PreventIndexing::class)->group(function () {
     Route::get('/logs/{token}', [LogController::class, 'index'])->name('logs.index');
     Route::get('/logs/{token}/storage', [StorageLogController::class, 'index'])->name('logs.storage');
     Route::get('/smartsearch/documents/{token}', [SmartSearchController::class, 'documents'])->name('smartsearch.documents');
+    Route::get('/smartsearch/document-categories/{token}', [SmartSearchController::class, 'documentCategories'])->name('smartsearch.document-categories');
 });
