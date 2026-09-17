@@ -78,11 +78,6 @@ class SmartDocService
         ])->json();
     }
 
-    /**
-     * Register a webhook SmartSearch calls back when a search completes.
-     *
-     * The callback url comes from config unless one is passed explicitly.
-     */
     public function createWebhook(string $searchId, ?string $callbackUrl = null): array
     {
         $callbackUrl ??= config('services.smartsearch.webhook_url') ?: route('webhooks.smartsearch');
@@ -108,13 +103,6 @@ class SmartDocService
         )->json();
     }
 
-    /**
-     * Send a search subject the link to their SmartDoc verification.
-     *
-     * @param  string  $method  sms | email
-     * @param  string  $value  the mobile number or email address to send to
-     * @param  string|null  $redirectTo  where to send the subject once they finish
-     */
     public function sendNotification(
         string $searchSubjectId,
         string $method,
@@ -148,11 +136,6 @@ class SmartDocService
         ])->json();
     }
 
-    /**
-     * Look up a UK business by its Companies House registration number.
-     *
-     * @param  string  $businessType  e.g. ltd
-     */
     public function findUkBusiness(string $crn, string $businessType = 'ltd'): array
     {
         return $this->client->post('/v3/ukbusiness/find', [
@@ -198,19 +181,22 @@ class SmartDocService
             ->json();
     }
 
-    /**
-     * Fetch the document categories available to the account.
-     */
-    public function listCategories(int $page = 1, int $size = 25): array
+    public function listCategories(): array
     {
-        $size = min($size, 25);
-
         return $this->client
-            ->get('/v3/document/categories', [
-                'page[number]' => $page,
-                'page[size]' => $size,
-            ])
+            ->get('/v3/document/categories')
             ->json();
+    }
+
+    /**
+     * Fetch the document types available to the account.
+     */
+    public function listDocumentTypes(): array
+    {
+        
+        return $this->client
+        ->get('/v3/document/types')
+        ->json();
     }
 
     /**

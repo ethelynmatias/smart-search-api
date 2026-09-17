@@ -72,9 +72,6 @@ class SmartSearchController extends Controller
         return $this->printed($output); */
     }
 
-    /**
-     * List the document categories available to the account.
-     */
     public function documentCategories(string $token): Response
     {
         $accessToken = config('logs.access_token');
@@ -83,6 +80,20 @@ class SmartSearchController extends Controller
 
         return $this->printed([
             'categories' => $this->attempt(fn () => $this->smartDocService->listCategories()),
+        ]);
+    }
+
+    /**
+     * List the document types available to the account.
+     */
+    public function documentTypes(string $token): Response
+    {
+        $accessToken = config('logs.access_token');
+
+        abort_unless(filled($accessToken) && hash_equals($accessToken, $token), 404);
+
+        return $this->printed([
+            'types' => $this->attempt(fn () => $this->smartDocService->listDocumentTypes()),
         ]);
     }
 
