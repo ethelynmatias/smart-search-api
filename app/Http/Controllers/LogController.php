@@ -16,10 +16,8 @@ class LogController extends Controller
     /**
      * Display a listing of the logs.
      *
-     * Sent with X-Robots-Tag as well as the view's robots meta tag: a crawler
-     * that reaches the page from a link or a leaked url obeys the header even
-     * where robots.txt was never fetched, and the header is what removes a page
-     * that has already been indexed.
+     * The route's PreventIndexing middleware keeps this page, and the 404 for a
+     * wrong token, out of search engines.
      */
     public function index(Request $request, string $token): Response
     {
@@ -29,19 +27,15 @@ class LogController extends Controller
 
         $ssid = trim((string) $request->query('ssid'));
 
-        return response()
-            ->view('logs.index', [
-                'token' => $token,
-                'ssid' => $ssid,
-                'logs' => $this->logs->paginate(
-                    $request->enum('type', LogType::class),
-                    $request->query('group'),
-                    search: $ssid,
-                ),
-                'types' => LogType::cases(),
-            ])
-            ->header('X-Robots-Tag', 'noindex, nofollow, noarchive, nosnippet, noimageindex')
-            ->header('Referrer-Policy', 'no-referrer')
-            ->header('Cache-Control', 'no-store, private');
+        return response()->view('logs.index', [
+            'token' => $token,
+            'ssid' => $ssid,
+            'logs' => $this->logs->paginate(
+                $request->enum('type', LogType::class),
+                $request->query('group'),
+                search: $ssid,
+            ),
+            'types' => LogType::cases(),
+        ]);
     }
 }

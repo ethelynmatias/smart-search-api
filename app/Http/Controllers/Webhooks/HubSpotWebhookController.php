@@ -15,9 +15,6 @@ class HubSpotWebhookController extends Controller
         protected LogService $logService,
     ) {}
 
-    /**
-     * Handle incoming HubSpot webhook events.
-     */
     public function __invoke(Request $request): JsonResponse
     {
         if (! $this->hubSpotWebhookService->hasValidSignature($request)) {

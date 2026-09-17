@@ -47,6 +47,7 @@ class HubSpotWebhookService
      */
     protected const SEARCH_PROPERTIES = [
         'smart_search' => ['smartdoc_ssid', 'smartdoc_status', 'smartsearch_uk_individual_ssid'],
+        'smart_search_local_testing' => ['smartdoc_ssid', 'smartdoc_status', 'smartsearch_uk_individual_ssid'],
     ];
 
     public function __construct(
@@ -170,10 +171,6 @@ class HubSpotWebhookService
             && in_array($event['propertyValue'] ?? null, ['true', true], true);
     }
 
-    /**
-     * Handle a deal property change. When ss_smartdoc or ss_individual_uk is
-     * ticked, fetch its associated contacts and log their fields.
-     */
     protected function handleDealPropertyChange(array $event): void
     {
         $property = $event['propertyName'] ?? null;
@@ -227,9 +224,8 @@ class HubSpotWebhookService
         // company is verified with SmartDoc alone.
         $amlContacts = $this->amlContacts($contacts);
 
-        $aml = $property === 'smart_search' && filled($amlContacts)
-            ? $this->runAmlSearches($amlContacts)
-            : [];
+        $aml = in_array($property, ['smart_search', 'smart_search_local_testing'], true) && filled($amlContacts)
+            ? $this->runAmlSearches($amlContacts) : [];
 
         if (filled($aml)) {
             // Fold the results back into the same log record, so the whole deal
@@ -244,7 +240,7 @@ class HubSpotWebhookService
             $this->writeUkIndividualRequestDateToDeal((string) $dealId, $aml, $amlLog->log_group_id);
         }
 
-        $smartDoc = $property === 'smart_search' && filled($contacts)
+        $smartDoc = in_array($property, ['smart_search', 'smart_search_local_testing'], true) && filled($contacts)
             ? $this->runSmartDocSearches($contacts)
             : [];
 
@@ -260,8 +256,7 @@ class HubSpotWebhookService
 
         $this->recordSmartDocDetails((string) $dealId, $smartDoc, $smartDocLog->log_group_id);
 
-        // Runs after the SmartDoc details are recorded, since the fraud check id
-        // joins the row that search created rather than opening one of its own.
+        // Patch fraud check
         $fraudChecks = $this->runFraudChecks($contacts);
 
         if (blank($fraudChecks)) {
@@ -956,7 +951,7 @@ class HubSpotWebhookService
 
         $response = $client->get("/crm/v3/objects/deals/{$dealId}", [
             'properties' => 'dealname,amount,dealstage,pipeline,closedate,createdate,hubspot_owner_id,dealtype,'
-                .implode(',', array_merge(...array_values(self::SEARCH_PROPERTIES))),
+                .implode(',', array_unique(array_merge(...array_values(self::SEARCH_PROPERTIES)))),
         ]);
 
         if ($response->failed()) {

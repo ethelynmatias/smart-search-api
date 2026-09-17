@@ -27,6 +27,27 @@ class LogPageNotIndexedTest extends TestCase
         $response->assertSee('noindex', false);
     }
 
+    public function test_the_storage_log_page_tells_crawlers_not_to_index_it(): void
+    {
+        $response = $this->get('/logs/test-token/storage');
+
+        $response->assertOk();
+        $response->assertHeader('X-Robots-Tag', 'noindex, nofollow, noarchive, nosnippet, noimageindex');
+        $response->assertHeader('Referrer-Policy', 'no-referrer');
+        $response->assertSee('name="robots"', false);
+        $response->assertSee('noindex', false);
+    }
+
+    public function test_a_wrong_token_tells_crawlers_not_to_index_it(): void
+    {
+        foreach (['/logs/wrong-token', '/logs/wrong-token/storage'] as $url) {
+            $this->get($url)
+                ->assertNotFound()
+                ->assertHeader('X-Robots-Tag', 'noindex, nofollow, noarchive, nosnippet, noimageindex')
+                ->assertHeader('Referrer-Policy', 'no-referrer');
+        }
+    }
+
     public function test_robots_txt_disallows_the_log_page(): void
     {
         $this->assertStringContainsString(
