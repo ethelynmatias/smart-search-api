@@ -160,7 +160,7 @@ class SmartDocService
         int $size = 25,
         ?string $include = 'types,categories',
     ): array {
-        $size = min($size, 25);
+        //$size = min($size, 25);
 
         $query = [
             'filter[subject]' => $subject,
@@ -168,8 +168,8 @@ class SmartDocService
             'filter[category]' => $category,
             'filter[document-type]' => $documentType,
             'filter[retrieved]' => $retrieved,
-            'page[number]' => $page,
-            'page[size]' => $size,
+            //'page[number]' => $page,
+            //'page[size]' => $size,
         ];
 
         if (filled($include)) {
