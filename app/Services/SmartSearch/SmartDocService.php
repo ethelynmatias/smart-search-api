@@ -2,6 +2,7 @@
 
 namespace App\Services\SmartSearch;
 
+use Illuminate\Http\Client\Response;
 use stdClass;
 
 class SmartDocService
@@ -77,11 +78,6 @@ class SmartDocService
         ])->json();
     }
 
-    /**
-     * Register a webhook SmartSearch calls back when a search completes.
-     *
-     * The callback url comes from config unless one is passed explicitly.
-     */
     public function createWebhook(string $searchId, ?string $callbackUrl = null): array
     {
         $callbackUrl ??= config('services.smartsearch.webhook_url') ?: route('webhooks.smartsearch');
@@ -107,13 +103,6 @@ class SmartDocService
         )->json();
     }
 
-    /**
-     * Send a search subject the link to their SmartDoc verification.
-     *
-     * @param  string  $method  sms | email
-     * @param  string  $value  the mobile number or email address to send to
-     * @param  string|null  $redirectTo  where to send the subject once they finish
-     */
     public function sendNotification(
         string $searchSubjectId,
         string $method,
@@ -145,5 +134,89 @@ class SmartDocService
                 // 'meta' => new stdClass,
             ],
         ])->json();
+    }
+
+    public function findUkBusiness(string $crn, string $businessType = 'ltd'): array
+    {
+        return $this->client->post('/v3/ukbusiness/find', [
+            'data' => [
+                'type' => 'find-uk-business',
+                'attributes' => [
+                    'business_type' => $businessType,
+                    'crn' => $crn,
+                ],
+            ],
+        ])->json();
+    }
+
+    /* Fetch all documents */
+    public function listAllDocuments(
+        string $subject,
+        string $cabinet,
+        string $category,
+        string $documentType,
+        string $retrieved,
+        ?string $include = 'types,categories',
+    ): array {
+        //$size = min($size, 25);
+
+        $query = [
+            'filter[subject]' => $subject,
+            'filter[cabinet]' => $cabinet,
+            'filter[category]' => $category,
+            'filter[document-type]' => $documentType,
+            'filter[retrieved]' => $retrieved,
+            //'page[number]' => $page,
+            //'page[size]' => $size,
+        ];
+
+        if (filled($include)) {
+            $query['include'] = $include;
+        }
+
+        return $this->client
+            ->get('/v3/document', $query)
+            ->json();
+    }
+
+    public function listCategories(): array
+    {
+        return $this->client
+            ->get('/v3/document/categories')
+            ->json();
+    }
+
+    public function listDocumentTypes(): array
+    {
+        
+        return $this->client
+        ->get('/v3/document/types')
+        ->json();
+    }
+
+    public function getDocument(string $documentId): array
+    {
+        /*return $this->client
+            ->get("v3/document-request/searches/{$documentId}")
+            ->json();*/
+
+        return $this->client
+            ->get("v3/document/{$documentId}")
+            ->json();
+    }
+
+    public function getPdfLink(string $documentId): array
+    {
+        return $this->client
+            ->get("/v3/document/{$documentId}/pdf-link")
+            ->json();
+    }
+
+    /**
+     * Download a document's PDF as a binary file.
+     */
+    public function getPdf(string $documentId): Response
+    {
+        return $this->client->download("/v3/document/{$documentId}/pdf");
     }
 }

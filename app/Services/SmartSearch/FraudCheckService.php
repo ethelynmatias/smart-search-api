@@ -2,6 +2,8 @@
 
 namespace App\Services\SmartSearch;
 
+use App\Support\HubSpotProperty;
+
 class FraudCheckService
 {
     public function __construct(
@@ -41,7 +43,7 @@ class FraudCheckService
                             'town' => $data['city'],
                             'region' => $data['region'] ?? null,
                             'postcode' => $data['postcode'],
-                            'country' => $data['country'] ?? 'GBR',
+                            'country' => HubSpotProperty::country($data['country'] ?? null),
                         ],
 
                         'date_of_birth' => $data['dob'] ?? null,
