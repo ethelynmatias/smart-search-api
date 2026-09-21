@@ -19,6 +19,11 @@ class HubSpotService
      */
     public const FAILED = 'failed';
 
+    /**
+     * The most a HubSpot multi-line text property can hold.
+     */
+    protected const MAX_TEXT_LENGTH = 65536;
+
     public function __construct(
         protected HubSpotAuthService $auth,
     ) {}
@@ -65,13 +70,11 @@ class HubSpotService
     }
 
     /**
-     * Write the SmartDoc search response onto the contact it belongs to.
+     * Add a SmartDoc search response to the ones already on the contact.
      */
     public function updateContactSmartDocResponse(string $contactId, array|string|null $response): array
     {
-        return $this->updateContactProperties($contactId, [
-            'smartdoc_response' => is_array($response) ? json_encode($response) : (string) $response,
-        ]);
+        return $this->appendContactResponse($contactId, 'smartdoc_response', $response);
     }
 
     /**
@@ -83,13 +86,11 @@ class HubSpotService
     }
 
     /**
-     * Write the AML search response onto the contact it belongs to.
+     * Add an AML search response to the ones already on the contact.
      */
     public function updateContactAmlResponse(string $contactId, array|string|null $response): array
     {
-        return $this->updateContactProperties($contactId, [
-            'aml_response' => is_array($response) ? json_encode($response) : (string) $response,
-        ]);
+        return $this->appendContactResponse($contactId, 'aml_response', $response);
     }
 
     /**
@@ -109,6 +110,32 @@ class HubSpotService
     {
         return $this->updateContactProperties($contactId, [
             'smart_search_fraud_status' => $status,
+        ]);
+    }
+
+    /**
+     * Append a response to a contact property, one per line, so an earlier
+     * response is kept rather than written over.
+     *
+     * When the property would outgrow what HubSpot can hold, the oldest
+     * responses are dropped first.
+     */
+    protected function appendContactResponse(string $contactId, string $property, array|string|null $response): array
+    {
+        $entry = is_array($response) ? json_encode($response) : (string) $response;
+
+        $lines = collect(preg_split('/\R/', (string) $this->contactProperty($contactId, $property)))
+            ->map(fn (string $line) => trim($line))
+            ->filter()
+            ->push($entry);
+
+        // Never drop the entry just written to make room for the older ones.
+        while ($lines->count() > 1 && strlen($lines->implode("\n")) > self::MAX_TEXT_LENGTH) {
+            $lines->shift();
+        }
+
+        return $this->updateContactProperties($contactId, [
+            $property => $lines->implode("\n"),
         ]);
     }
 
