@@ -10,9 +10,14 @@ class HubSpotService
 {
     /**
      * The value written onto a contact in place of a search id when the search
-     * was skipped, and so the one value a real id may replace.
+     * was skipped, and so a value a real id may replace.
      */
     public const SKIPPED = 'skipped';
+
+    /**
+     * The same, for a search that was attempted and failed.
+     */
+    public const FAILED = 'failed';
 
     public function __construct(
         protected HubSpotAuthService $auth,
@@ -30,14 +35,14 @@ class HubSpotService
      * Write the SmartDoc search id onto the contact it was created for,
      * without disturbing a search already held there.
      *
-     * A contact whose last attempt was skipped holds no real search, so that
-     * value is written over the same way an empty property is.
+     * A contact whose last attempt was skipped or failed holds no real search,
+     * so that value is written over the same way an empty property is.
      */
     public function updateContactSmartDocSsid(string $contactId, string $ssid): array
     {
         $existing = $this->contactProperty($contactId, 'smartdoc_ssid');
 
-        if (filled($existing) && ! $this->isSkipped($existing)) {
+        if (filled($existing) && ! $this->isSkippedOrFailed($existing)) {
             Log::debug('HubSpot contact already holds a smartdoc ssid; keeping it.', [
                 'contactId' => $contactId,
                 'smartdocSsid' => $existing,
@@ -52,11 +57,11 @@ class HubSpotService
 
     /**
      * Whether a property holds one of the markers we write in place of a
-     * search id when the search never ran.
+     * search id when the search never ran or failed.
      */
-    protected function isSkipped(string $value): bool
+    protected function isSkippedOrFailed(string $value): bool
     {
-        return Str::lower(trim($value)) === self::SKIPPED;
+        return in_array(Str::lower(trim($value)), [self::SKIPPED, self::FAILED], true);
     }
 
     /**
