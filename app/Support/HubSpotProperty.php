@@ -47,6 +47,24 @@ class HubSpotProperty
     }
 
     /**
+     * Normalise a HubSpot country property to the alpha-3 code SmartSearch expects.
+     *
+     * HubSpot holds whatever was typed, so the UK arrives as "England",
+     * "United Kingdom" or "GB". Those become GBR; a blank falls back to GBR as
+     * before, and any other country is passed through untouched rather than guessed at.
+     */
+    public static function country(mixed $value): string
+    {
+        $country = trim((string) $value);
+
+        return match (strtolower($country)) {
+            '', 'england', 'scotland', 'wales', 'northern ireland', 'great britain',
+            'united kingdom', 'uk', 'u.k.', 'gb', 'gbr' => 'GBR',
+            default => $country,
+        };
+    }
+
+    /**
      * Normalise a slash separated date, working out which part is the day.
      *
      * Carbon reads slashed dates as m/d/Y, so 17/11/2004 would throw and a
