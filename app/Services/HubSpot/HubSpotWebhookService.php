@@ -404,10 +404,7 @@ class HubSpotWebhookService
     }
 
     /**
-     * Write a failed AML search onto the contact it was attempted for.
-     *
-     * A search skipped for missing fields never reached SmartSearch to be
-     * answered, so only an API failure is written.
+     * Write an AML search that failed or was skipped onto the contact it was attempted for.
      *
      * @param  array  $entry  one runAmlSearch() outcome
      */
@@ -415,18 +412,15 @@ class HubSpotWebhookService
     {
         $errors = $entry['errors'] ?? null;
         $error = $entry['error'] ?? null;
+        $skipped = $entry['skipped'] ?? null;
 
-        if (blank($errors) && blank($error)) {
+        if (blank($errors) && blank($error) && blank($skipped)) {
             return;
         }
 
-        // A failure with no error body, such as a timeout or a 5xx, still
-        // carries a message.
         $response = $this->hubSpotService->updateContactAmlResponse(
             $contactId,
-            filled($errors)
-                ? ['errors' => $errors]
-                : ['errors' => [['title' => $error, 'status' => $entry['status'] ?? null]]],
+            $this->searchFailurePayload($entry),
         );
 
         $this->logService->forGroup($groupId)->webhook('HubSpot: contact aml errors written', [
@@ -434,6 +428,7 @@ class HubSpotWebhookService
             'status' => $entry['status'] ?? null,
             'error' => $error,
             'errors' => $errors,
+            'skipped' => $skipped,
             // updateContactAmlResponse() logs its own failure and returns empty.
             'written' => filled($response),
         ]);
@@ -486,7 +481,30 @@ class HubSpotWebhookService
     }
 
     /**
-     * Write a failed SmartDoc creation onto the contact it was attempted for.
+     * The response written onto a contact for a search that produced no id.
+     *
+     * The shape SmartSearch answers with for an API failure, or the skip
+     * reason and the fields that were missing when it never reached the API.
+     *
+     * @param  array  $entry  one runAmlSearch() or runSmartDocSearch() outcome
+     */
+    protected function searchFailurePayload(array $entry): array
+    {
+        if (filled($entry['errors'] ?? null)) {
+            return ['errors' => $entry['errors']];
+        }
+
+        // A failure with no error body, such as a timeout or a 5xx, still
+        // carries a message.
+        if (filled($entry['error'] ?? null)) {
+            return ['errors' => [['title' => $entry['error'], 'status' => $entry['status'] ?? null]]];
+        }
+
+        return ['skipped' => $entry['skipped'], 'missing' => $entry['missing'] ?? []];
+    }
+
+    /**
+     * Write a SmartDoc creation that failed or was skipped onto the contact it was attempted for.
      *
      * @param  array  $entry  one runSmartDocSearch() outcome
      */
@@ -495,27 +513,24 @@ class HubSpotWebhookService
         $contactId = $entry['contactId'] ?? null;
         $errors = $entry['errors'] ?? null;
         $error = $entry['error'] ?? null;
+        $skipped = $entry['skipped'] ?? null;
 
-        // A company owner search has no contact, and an entry skipped for
-        // missing fields never reached SmartSearch to be answered.
-        if (blank($contactId) || (blank($errors) && blank($error))) {
+        // A company owner search has no contact to write to.
+        if (blank($contactId) || (blank($errors) && blank($error) && blank($skipped))) {
             return;
         }
 
-        // A failure with no error body, such as a timeout or a 5xx, still
-        // carries a message, so it is written rather than left unexplained.
         $response = $this->hubSpotService->updateContactSmartDocResponse(
             $contactId,
-            filled($errors)
-                ? ['errors' => $errors]
-                : ['errors' => [['title' => $error, 'status' => $entry['status'] ?? null]]],
+            $this->searchFailurePayload($entry),
         );
 
         $this->logService->forGroup($groupId)->webhook('HubSpot: contact smartdoc errors written', [
             'contactId' => $contactId,
             'status' => $entry['status'] ?? null,
-            'error' => $entry['error'] ?? null,
+            'error' => $error,
             'errors' => $errors,
+            'skipped' => $skipped,
             // updateContactSmartDocResponse() logs its own failure and returns empty.
             'written' => filled($response),
         ]);
