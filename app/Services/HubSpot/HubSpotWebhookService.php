@@ -631,7 +631,7 @@ class HubSpotWebhookService
                     'title' => $properties['honorifictitle'] ?? null,
                     'first_name' => $properties['firstname'] ?? null,
                     'last_name' => $properties['lastname'] ?? null,
-                    'address1' => $properties['street_address_1'] ?? null,
+                    'address1' => $this->streetAddress($properties),
                     'city' => $properties['city'] ?? null,
                     'postcode' => $properties['zip'] ?? null,
                 ],
@@ -709,6 +709,35 @@ class HubSpotWebhookService
         }
 
         return null;
+    }
+
+    /**
+     * A contact's first address line: street_address_1, or the single-line
+     * address property when neither street line has been filled in.
+     */
+    protected function streetAddress(array $properties): ?string
+    {
+        if (filled($properties['street_address_1'] ?? null)) {
+            return $properties['street_address_1'];
+        }
+
+        return blank($properties['street_address_2'] ?? null)
+            ? $this->firstFilled($properties['address'] ?? null)
+            : null;
+    }
+
+    /**
+     * A contact's second address line: street_address_2, or the single-line
+     * address property when that has not already been used as the first line.
+     */
+    protected function secondStreetLine(array $properties): ?string
+    {
+        $address = $this->firstFilled($properties['address'] ?? null);
+
+        return $this->firstFilled(
+            $properties['street_address_2'] ?? null,
+            $this->streetAddress($properties) === $address ? null : $address,
+        );
     }
 
     /**
@@ -808,9 +837,10 @@ class HubSpotWebhookService
             'last_name' => $properties['lastname'] ?? null,
             'date_of_birth' => HubSpotProperty::date($properties['dob_date_of_birth'] ?? null),
             'sex' => HubSpotProperty::sex($properties['sex'] ?? null),
+            'flat' => $properties['flat_number'] ?? null,
             'building' => $properties['building_number'] ?? null,
-            'street_1' => $properties['street_address_1'] ?? null,
-            'street_2' => $properties['street_address_2'] ?? null,
+            'street_1' => $this->streetAddress($properties),
+            'street_2' => $this->secondStreetLine($properties),
             'town' => $properties['city'] ?? null,
             'region' => $properties['state'] ?? null,
             'postcode' => $properties['zip'] ?? null,
@@ -864,7 +894,10 @@ class HubSpotWebhookService
                     'title' => $properties['honorifictitle'] ?? null,
                     'first_name' => $properties['firstname'] ?? null,
                     'last_name' => $properties['lastname'] ?? null,
-                    'address1' => $properties['street_address_1'] ?? null,
+                    'flat' => $properties['flat_number'] ?? null,
+                    'address1' => $this->streetAddress($properties),
+                    'street_1' => $this->streetAddress($properties),
+                    'street_2' => $this->secondStreetLine($properties),
                     'city' => $properties['city'] ?? null,
                     'region' => $properties['state'] ?? null,
                     'postcode' => $properties['zip'] ?? null,
@@ -1105,9 +1138,9 @@ class HubSpotWebhookService
         $contactIds = $labels->keys();
 
         $response = $client->post('/crm/v3/objects/contacts/batch/read', [
-            // honorifictitle/building_number/street_address_1/city/zip feed the AML search;
+            // honorifictitle/building_number/street_address_1/address/city/zip feed the AML search;
             // dob_date_of_birth/sex feed the SmartDoc verification.
-            'properties' => ['firstname', 'lastname', 'email', 'phone', 'mobilephone', 'company', 'lifecyclestage', 'honorifictitle', 'building_number','street_address_2', 'street_address_1', 'city', 'zip', 'state', 'country', 'dob_date_of_birth', 'sex'],
+            'properties' => ['firstname', 'lastname', 'email', 'phone', 'mobilephone', 'company', 'lifecyclestage', 'honorifictitle', 'flat_number','building_number','address','street_address_2', 'street_address_1', 'city', 'zip', 'state', 'country', 'dob_date_of_birth', 'sex'],
             'inputs' => $contactIds->map(fn ($id) => ['id' => (string) $id])->all(),
         ]);
 
