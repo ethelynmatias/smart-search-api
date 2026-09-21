@@ -808,8 +808,9 @@ class HubSpotWebhookService
             'last_name' => $properties['lastname'] ?? null,
             'date_of_birth' => HubSpotProperty::date($properties['dob_date_of_birth'] ?? null),
             'sex' => HubSpotProperty::sex($properties['sex'] ?? null),
-            'building' => $properties['street_address_1'] ?? null,
+            'building' => $properties['building_number'] ?? null,
             'street_1' => $properties['street_address_1'] ?? null,
+            'street_2' => $properties['street_address_2'] ?? null,
             'town' => $properties['city'] ?? null,
             'region' => $properties['state'] ?? null,
             'postcode' => $properties['zip'] ?? null,
@@ -1106,7 +1107,7 @@ class HubSpotWebhookService
         $response = $client->post('/crm/v3/objects/contacts/batch/read', [
             // honorifictitle/building_number/street_address_1/city/zip feed the AML search;
             // dob_date_of_birth/sex feed the SmartDoc verification.
-            'properties' => ['firstname', 'lastname', 'email', 'phone', 'mobilephone', 'company', 'lifecyclestage', 'honorifictitle', 'building_number', 'street_address_1', 'city', 'zip', 'state', 'country', 'dob_date_of_birth', 'sex'],
+            'properties' => ['firstname', 'lastname', 'email', 'phone', 'mobilephone', 'company', 'lifecyclestage', 'honorifictitle', 'building_number','street_address_2', 'street_address_1', 'city', 'zip', 'state', 'country', 'dob_date_of_birth', 'sex'],
             'inputs' => $contactIds->map(fn ($id) => ['id' => (string) $id])->all(),
         ]);
 
