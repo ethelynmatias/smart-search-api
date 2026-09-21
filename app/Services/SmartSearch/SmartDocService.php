@@ -156,8 +156,6 @@ class SmartDocService
         string $category,
         string $documentType,
         string $retrieved,
-        int $page = 1,
-        int $size = 25,
         ?string $include = 'types,categories',
     ): array {
         //$size = min($size, 25);
@@ -188,9 +186,6 @@ class SmartDocService
             ->json();
     }
 
-    /**
-     * Fetch the document types available to the account.
-     */
     public function listDocumentTypes(): array
     {
         
@@ -199,9 +194,17 @@ class SmartDocService
         ->json();
     }
 
-    /**
-     * Get a link to a document's PDF.
-     */
+    public function getDocument(string $documentId): array
+    {
+        /*return $this->client
+            ->get("v3/document-request/searches/{$documentId}")
+            ->json();*/
+
+        return $this->client
+            ->get("v3/document/{$documentId}")
+            ->json();
+    }
+
     public function getPdfLink(string $documentId): array
     {
         return $this->client

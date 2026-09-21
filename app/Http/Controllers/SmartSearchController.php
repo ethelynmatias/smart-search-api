@@ -16,6 +16,20 @@ class SmartSearchController extends Controller
 
     public function documents(string $token): Response
     {
+
+        $subjectId = '11983718';
+        $documents = $this->attempt(fn () => $this->smartDocService->listAllDocuments(
+            subject: $subjectId,
+            cabinet: 'company',
+            category: 'company',
+            documentType: 'report',
+            retrieved: 'false',
+
+            include: 'types,categories',
+        ));
+
+
+      /*
         $accessToken = config('logs.access_token');
 
         abort_unless(filled($accessToken) && hash_equals($accessToken, $token), 404);
@@ -39,7 +53,7 @@ class SmartSearchController extends Controller
             return $this->printed($output);
         }
 
-        /*
+      
         $documents = $this->attempt(fn () => $this->smartDocService->listAllDocuments(
             subject: $subjectId,
             cabinet: 'company',
@@ -94,6 +108,24 @@ class SmartSearchController extends Controller
 
         return $this->printed([
             'types' => $this->attempt(fn () => $this->smartDocService->listDocumentTypes()),
+        ]);
+    }
+
+    /**
+     * Fetch a single document search by ID.
+     */
+    public function document(string $token): Response
+    {
+        $accessToken = config('logs.access_token');
+
+        abort_unless(filled($accessToken) && hash_equals($accessToken, $token), 404);
+
+        // Fixed value for now: Real Inbound Ltd.
+        $searchId = '11983718';
+
+        return $this->printed([
+            'pdf' => $this->attempt(fn () => $this->smartDocService->getPdfLink($searchId)),
+            'document' => $this->attempt(fn () => $this->smartDocService->getDocument($searchId)),
         ]);
     }
 

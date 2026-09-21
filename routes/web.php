@@ -16,4 +16,5 @@ Route::middleware(PreventIndexing::class)->group(function () {
     Route::get('/smartsearch/documents/{token}', [SmartSearchController::class, 'documents'])->name('smartsearch.documents');
     Route::get('/smartsearch/document-categories/{token}', [SmartSearchController::class, 'documentCategories'])->name('smartsearch.document-categories');
     Route::get('/smartsearch/document-types/{token}', [SmartSearchController::class, 'documentTypes'])->name('smartsearch.document-types');
+    Route::get('/smartsearch/document/{token}', [SmartSearchController::class, 'document'])->name('smartsearch.document');
 });
