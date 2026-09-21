@@ -349,6 +349,12 @@ class HubSpotWebhookService
             ->unique()
             ->values();
 
+        // Each contact holds its own search, or the reason it never started,
+        // so this runs even when no search was created for anyone.
+        foreach ($aml as $entry) {
+            $this->writeAmlToContact($entry, $groupId);
+        }
+
         if ($ssids->isEmpty()) {
             return;
         }
@@ -363,11 +369,6 @@ class HubSpotWebhookService
             // updateSmartSearchUkIndividualSsid() logs its own failure and returns empty.
             'written' => filled($response),
         ]);
-
-        // The deal holds the whole set; each contact holds its own search.
-        foreach ($aml as $entry) {
-            $this->writeAmlToContact($entry, $groupId);
-        }
     }
 
     /**
@@ -378,7 +379,14 @@ class HubSpotWebhookService
         $contactId = $entry['contactId'] ?? null;
         $ssid = data_get($entry, 'result.data.id');
 
-        if (blank($contactId) || blank($ssid)) {
+        // A company owner search has no contact to write to.
+        if (blank($contactId)) {
+            return;
+        }
+
+        if (blank($ssid)) {
+            $this->writeAmlErrorsToContact((string) $contactId, $entry, $groupId);
+
             return;
         }
 
@@ -392,6 +400,42 @@ class HubSpotWebhookService
             // The update methods log their own failures and return empty.
             'ssidWritten' => filled($ssidWritten),
             'responseWritten' => filled($responseWritten),
+        ]);
+    }
+
+    /**
+     * Write a failed AML search onto the contact it was attempted for.
+     *
+     * A search skipped for missing fields never reached SmartSearch to be
+     * answered, so only an API failure is written.
+     *
+     * @param  array  $entry  one runAmlSearch() outcome
+     */
+    protected function writeAmlErrorsToContact(string $contactId, array $entry, ?string $groupId): void
+    {
+        $errors = $entry['errors'] ?? null;
+        $error = $entry['error'] ?? null;
+
+        if (blank($errors) && blank($error)) {
+            return;
+        }
+
+        // A failure with no error body, such as a timeout or a 5xx, still
+        // carries a message.
+        $response = $this->hubSpotService->updateContactAmlResponse(
+            $contactId,
+            filled($errors)
+                ? ['errors' => $errors]
+                : ['errors' => [['title' => $error, 'status' => $entry['status'] ?? null]]],
+        );
+
+        $this->logService->forGroup($groupId)->webhook('HubSpot: contact aml errors written', [
+            'contactId' => $contactId,
+            'status' => $entry['status'] ?? null,
+            'error' => $error,
+            'errors' => $errors,
+            // updateContactAmlResponse() logs its own failure and returns empty.
+            'written' => filled($response),
         ]);
     }
 
@@ -450,14 +494,22 @@ class HubSpotWebhookService
     {
         $contactId = $entry['contactId'] ?? null;
         $errors = $entry['errors'] ?? null;
+        $error = $entry['error'] ?? null;
 
         // A company owner search has no contact, and an entry skipped for
         // missing fields never reached SmartSearch to be answered.
-        if (blank($contactId) || blank($errors)) {
+        if (blank($contactId) || (blank($errors) && blank($error))) {
             return;
         }
 
-        $response = $this->hubSpotService->updateContactSmartDocResponse($contactId, ['errors' => $errors]);
+        // A failure with no error body, such as a timeout or a 5xx, still
+        // carries a message, so it is written rather than left unexplained.
+        $response = $this->hubSpotService->updateContactSmartDocResponse(
+            $contactId,
+            filled($errors)
+                ? ['errors' => $errors]
+                : ['errors' => [['title' => $error, 'status' => $entry['status'] ?? null]]],
+        );
 
         $this->logService->forGroup($groupId)->webhook('HubSpot: contact smartdoc errors written', [
             'contactId' => $contactId,
