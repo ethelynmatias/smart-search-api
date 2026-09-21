@@ -2,6 +2,7 @@
 
 namespace App\Services\SmartSearch;
 
+use App\Support\HubSpotProperty;
 use Illuminate\Http\Client\Response;
 use stdClass;
 
@@ -46,7 +47,7 @@ class SmartDocService
                         'town' => $data['town'],
                         'region' => $data['region'],
                         'postcode' => $data['postcode'],
-                        'country' => $data['country'] ?? 'GBR',
+                        'country' => HubSpotProperty::country($data['country'] ?? null),
                     ],
 
                     'redirect_to' => null,
