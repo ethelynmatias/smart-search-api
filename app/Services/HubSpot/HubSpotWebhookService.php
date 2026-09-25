@@ -248,9 +248,6 @@ class HubSpotWebhookService
             'smartdoc' => $smartDoc,
         ]);
 
-        // Send notifications for any SmartDoc searches that were created
-        $this->notificationSmartDocSubmission($smartDoc);
-
         $this->recordSmartDocDetails((string) $dealId, $smartDoc, $smartDocLog->log_group_id);
 
         // Patch fraud check
@@ -267,34 +264,57 @@ class HubSpotWebhookService
         ]);
 
         $this->recordFraudCheckDetails((string) $dealId, $fraudChecks, $fraudCheckLog->log_group_id);
+
+        // Send notifications for any SmartDoc searches that were created
+        $this->notificationSmartDocSubmission($smartDoc, $contacts);
     }
 
-    public function notificationSmartDocSubmission($smartDoc): void
+    public function notificationSmartDocSubmission(array $smartDoc, array $contacts): void
     {
-        $subjectIds = collect($smartDoc['smartdoc'] ?? [])
-        ->map(function ($item) {
-            return data_get(
-                $item,
-                'result.data.relationships.subject.data.id'
-            );
-        })
-        ->filter()
-        ->unique()
-        ->values()
-        ->all();
+        $notifications = collect($smartDoc)
+            ->map(function (array $item) use ($contacts): ?array {
+                $subjectId = data_get($item, 'result.data.relationships.subject.data.id');
 
-        $this->logService->webhook('HubSpot: smartdoc submission client email', [
-            'message' => 'SmartDoc submission received',
-            'subjectIds' => $subjectIds
-        ]);
+                if (blank($subjectId)) {
+                    return null;
+                }
 
-        foreach ($subjectIds as $subjectId) {
-            // Use the subject ID here
-            $smartDocService->sendNotification(
-                $subjectId,
-                'email',
-                'email'
-            );
+                $email = $item['email'] ?? null;
+                $contact = collect($contacts)->first(
+                    fn (array $contact) => filled($email)
+                        && strcasecmp(trim((string) data_get($contact, 'properties.email', '')), trim((string) $email)) === 0,
+                );
+                $phone = data_get($contact, 'properties.phone')
+                    ?: data_get($contact, 'properties.mobilephone');
+                [$method, $value] = filled($phone) ? ['sms', $phone] : ['email', $email];
+
+                if (blank($value)) {
+                    return null;
+                }
+
+                return [
+                    'subjectId' => (string) $subjectId,
+                    'method' => $method,
+                    'value' => (string) $value,
+                ];
+            })
+            ->filter()
+            ->unique('subjectId')
+            ->values();
+
+        if ($notifications->isNotEmpty()) {
+            $this->logService->webhook('HubSpot: smartdoc submission notification', [
+                'message' => 'SmartDoc submission received',
+                'notifications' => $notifications->all(),
+            ]);
+
+            foreach ($notifications as $notification) {
+                $this->smartDocService->sendNotification(
+                    $notification['subjectId'],
+                    $notification['method'],
+                    $notification['value'],
+                );
+            }
         }
     }
 
