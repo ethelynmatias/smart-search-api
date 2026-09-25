@@ -248,7 +248,7 @@ class HubSpotWebhookService
             'smartdoc' => $smartDoc,
         ]);
 
-        $this->recordSmartDocDetails((string) $dealId, $smartDoc, $smartDocLog->log_group_id);
+        $this->recordSmartDocDetails((string) $dealId, $smartDoc, $smartDocLog->log_group_id, $contacts);
 
         // Patch fraud check
         $fraudChecks = $this->runFraudChecks($contacts);
@@ -264,12 +264,9 @@ class HubSpotWebhookService
         ]);
 
         $this->recordFraudCheckDetails((string) $dealId, $fraudChecks, $fraudCheckLog->log_group_id);
-
-        // Send notifications for any SmartDoc searches that were created
-        $this->notificationSmartDocSubmission($smartDoc, $contacts);
     }
 
-    public function notificationSmartDocSubmission(array $smartDoc, array $contacts): void
+    public function notificationSmartDocSubmission(array $smartDoc, array $contacts)
     {
         $notifications = collect($smartDoc)
             ->map(function (array $item) use ($contacts): ?array {
@@ -309,11 +306,25 @@ class HubSpotWebhookService
             ]);
 
             foreach ($notifications as $notification) {
-                $this->smartDocService->sendNotification(
-                    $notification['subjectId'],
-                    $notification['method'],
-                    $notification['value'],
-                );
+                try {
+                    $this->smartDocService->sendNotification(
+                        $notification['subjectId'],
+                        $notification['method'],
+                        $notification['value'],
+                    );
+                } catch (\Throwable $exception) {
+                    Log::warning('SmartDoc submission notification failed.', [
+                        'subjectId' => $notification['subjectId'],
+                        'method' => $notification['method'],
+                        'exception' => $exception->getMessage(),
+                    ]);
+
+                    $this->logService->webhook('HubSpot: smartdoc submission notification failed', [
+                        'subjectId' => $notification['subjectId'],
+                        'method' => $notification['method'],
+                        'exception' => $exception->getMessage(),
+                    ]);
+                }
             }
         }
     }
@@ -322,7 +333,7 @@ class HubSpotWebhookService
      * Persist one pending webhook detail per created SmartDoc search, so the
      * result callback can be matched back to its deal by ssid.
      */
-    protected function recordSmartDocDetails(string $dealId, array $smartDoc, ?string $groupId): void
+    protected function recordSmartDocDetails(string $dealId, array $smartDoc, ?string $groupId, array $contacts): void
     {
         $ssids = [];
 
@@ -381,6 +392,9 @@ class HubSpotWebhookService
         if (filled($ssids)) {
             $this->writeSmartDocSsidsToDeal($dealId, $ssids, $groupId);
         }
+
+        // Send notifications after recording the SmartDoc search details.
+        $this->notificationSmartDocSubmission($smartDoc, $contacts);
     }
 
     /**
