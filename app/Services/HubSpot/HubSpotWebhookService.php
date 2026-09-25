@@ -121,8 +121,6 @@ class HubSpotWebhookService
     {
         $eventId = $event['eventId'] ?? null;
 
-        // Nothing to key on. Rather than drop the event, let it through and
-        // leave the deal property checks to catch a repeat of it.
         if (blank($eventId)) {
             Log::warning('HubSpot webhook event has no eventId to deduplicate on.', $event);
 
@@ -139,7 +137,6 @@ class HubSpotWebhookService
                 ],
             );
         } catch (UniqueConstraintViolationException) {
-            // The other delivery inserted between our select and our insert.
             $record = null;
         }
 
@@ -158,9 +155,6 @@ class HubSpotWebhookService
         return true;
     }
 
-    /**
-     * Whether an event is one this app acts on, and so worth a log line.
-     */
     protected function isActionable(array $event): bool
     {
         if (($event['subscriptionType'] ?? null) !== 'deal.propertyChange') {
@@ -254,7 +248,7 @@ class HubSpotWebhookService
             'smartdoc' => $smartDoc,
         ]);
 
-        $this->recordSmartDocDetails((string) $dealId, $smartDoc, $smartDocLog->log_group_id);
+        $this->recordSmartDocDetails((string) $dealId, $smartDoc, $smartDocLog->log_group_id, $contacts);
 
         // Patch fraud check
         $fraudChecks = $this->runFraudChecks($contacts);
@@ -272,11 +266,74 @@ class HubSpotWebhookService
         $this->recordFraudCheckDetails((string) $dealId, $fraudChecks, $fraudCheckLog->log_group_id);
     }
 
+    public function notificationSmartDocSubmission(array $smartDoc, array $contacts)
+    {
+        $notifications = collect($smartDoc)
+            ->map(function (array $item) use ($contacts): ?array {
+                $subjectId = data_get($item, 'result.data.relationships.subject.data.id');
+
+                if (blank($subjectId)) {
+                    return null;
+                }
+
+                $email = $item['email'] ?? null;
+                $contact = collect($contacts)->first(
+                    fn (array $contact) => filled($email)
+                        && strcasecmp(trim((string) data_get($contact, 'properties.email', '')), trim((string) $email)) === 0,
+                );
+                $phone = data_get($contact, 'properties.phone')
+                    ?: data_get($contact, 'properties.mobilephone');
+                [$method, $value] = filled($phone) ? ['sms', $phone] : ['email', $email];
+
+                if (blank($value)) {
+                    return null;
+                }
+
+                return [
+                    'subjectId' => (string) $subjectId,
+                    'method' => $method,
+                    'value' => (string) $value,
+                ];
+            })
+            ->filter()
+            ->unique('subjectId')
+            ->values();
+
+        if ($notifications->isNotEmpty()) {
+            $this->logService->webhook('HubSpot: smartdoc submission notification', [
+                'message' => 'SmartDoc submission received',
+                'notifications' => $notifications->all(),
+            ]);
+
+            foreach ($notifications as $notification) {
+                try {
+                    $this->smartDocService->sendNotification(
+                        $notification['subjectId'],
+                        $notification['method'],
+                        $notification['value'],
+                    );
+                } catch (\Throwable $exception) {
+                    Log::warning('SmartDoc submission notification failed.', [
+                        'subjectId' => $notification['subjectId'],
+                        'method' => $notification['method'],
+                        'exception' => $exception->getMessage(),
+                    ]);
+
+                    $this->logService->webhook('HubSpot: smartdoc submission notification failed', [
+                        'subjectId' => $notification['subjectId'],
+                        'method' => $notification['method'],
+                        'exception' => $exception->getMessage(),
+                    ]);
+                }
+            }
+        }
+    }
+
     /**
      * Persist one pending webhook detail per created SmartDoc search, so the
      * result callback can be matched back to its deal by ssid.
      */
-    protected function recordSmartDocDetails(string $dealId, array $smartDoc, ?string $groupId): void
+    protected function recordSmartDocDetails(string $dealId, array $smartDoc, ?string $groupId, array $contacts): void
     {
         $ssids = [];
 
@@ -335,6 +392,9 @@ class HubSpotWebhookService
         if (filled($ssids)) {
             $this->writeSmartDocSsidsToDeal($dealId, $ssids, $groupId);
         }
+
+        // Send notifications after recording the SmartDoc search details.
+        $this->notificationSmartDocSubmission($smartDoc, $contacts);
     }
 
     /**
