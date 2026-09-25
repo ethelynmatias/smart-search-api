@@ -121,8 +121,6 @@ class HubSpotWebhookService
     {
         $eventId = $event['eventId'] ?? null;
 
-        // Nothing to key on. Rather than drop the event, let it through and
-        // leave the deal property checks to catch a repeat of it.
         if (blank($eventId)) {
             Log::warning('HubSpot webhook event has no eventId to deduplicate on.', $event);
 
@@ -139,7 +137,6 @@ class HubSpotWebhookService
                 ],
             );
         } catch (UniqueConstraintViolationException) {
-            // The other delivery inserted between our select and our insert.
             $record = null;
         }
 
@@ -158,9 +155,6 @@ class HubSpotWebhookService
         return true;
     }
 
-    /**
-     * Whether an event is one this app acts on, and so worth a log line.
-     */
     protected function isActionable(array $event): bool
     {
         if (($event['subscriptionType'] ?? null) !== 'deal.propertyChange') {
@@ -254,6 +248,9 @@ class HubSpotWebhookService
             'smartdoc' => $smartDoc,
         ]);
 
+        // Send notifications for any SmartDoc searches that were created
+        $this->notificationSmartDocSubmission($smartDoc);
+
         $this->recordSmartDocDetails((string) $dealId, $smartDoc, $smartDocLog->log_group_id);
 
         // Patch fraud check
@@ -270,6 +267,35 @@ class HubSpotWebhookService
         ]);
 
         $this->recordFraudCheckDetails((string) $dealId, $fraudChecks, $fraudCheckLog->log_group_id);
+    }
+
+    public function notificationSmartDocSubmission($smartDoc): void
+    {
+        $subjectIds = collect($smartDoc['smartdoc'] ?? [])
+        ->map(function ($item) {
+            return data_get(
+                $item,
+                'result.data.relationships.subject.data.id'
+            );
+        })
+        ->filter()
+        ->unique()
+        ->values()
+        ->all();
+
+        $this->logService->webhook('HubSpot: smartdoc submission client email', [
+            'message' => 'SmartDoc submission received',
+            'subjectIds' => $subjectIds
+        ]);
+
+        foreach ($subjectIds as $subjectId) {
+            // Use the subject ID here
+            $smartDocService->sendNotification(
+                $subjectId,
+                'email',
+                'email'
+            );
+        }
     }
 
     /**
