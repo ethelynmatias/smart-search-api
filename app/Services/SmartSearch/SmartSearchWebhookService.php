@@ -19,10 +19,6 @@ class SmartSearchWebhookService
         protected SmartDocService $smartDocService,
     ) {}
 
-    /**
-     * Handle a SmartSearch search callback, recording the search outcome
-     * against the webhook detail that has been waiting on it.
-     */
     public function handleCallback(array $payload): void
     {
         $searchId = data_get($payload, 'data.id');
@@ -33,8 +29,6 @@ class SmartSearchWebhookService
             return;
         }
 
-        // The detail is read first for its group id, so the callback logs land
-        // in the same log group as the HubSpot deal that started the search.
         $detail = $this->webhookDetails->findBySsid((string) $searchId);
 
         if (blank($detail)) {
@@ -63,6 +57,7 @@ class SmartSearchWebhookService
 
         $this->writeStatusToDeal($detail, $status);
         $this->writeResponseToContact($detail, $payload);
+        $this->writeStatusToContact($detail, $status);
 
         if ($status === WebhookDetailStatus::Completed) {
             // Remove notify subject to prevent confusion
@@ -89,6 +84,26 @@ class SmartSearchWebhookService
             'contactId' => $detail->hubspot_contact_id,
             'ssid' => $detail->ssid,
             // updateContactSmartDocResponse() logs its own failure and returns empty.
+            'written' => filled($response),
+        ]);
+    }
+
+    protected function writeStatusToContact(WebhookDetail $detail, WebhookDetailStatus $status): void
+    {
+        if ($detail->type !== 'smartdoc' || blank($detail->hubspot_contact_id)) {
+            return;
+        }
+
+        // Update status per contact
+        $response = $this->hubSpotService->updateContactSmartDocStatus(
+            (string) $detail->hubspot_contact_id,
+            $status->value,
+        );
+
+        $this->logService->forGroup($detail->group_id)->webhook('HubSpot: contact smartdoc status written', [
+            'contactId' => $detail->hubspot_contact_id,
+            'ssid' => $detail->ssid,
+            'smartdocStatus' => $status->value,
             'written' => filled($response),
         ]);
     }

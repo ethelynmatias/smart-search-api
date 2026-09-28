@@ -74,8 +74,6 @@ class NotificationService
                 'expiryDateUpdated' => filled($expiryDateUpdate),
             ]);
 
-            // Add contact expiry date here 
-            
         } catch (SmartSearchException $exception) {
             $this->logService->webhook('SmartDoc notification failed.', [
                 'contactId' => $contactId,
