@@ -65,12 +65,15 @@ class HubSpotWebhookService
      *
      * @see https://developers.hubspot.com/docs/api/webhooks/validating-requests
      */
-    public function hasValidSignature(Request $request): bool
+    public function hasValidSignature(Request $request, bool $notification = false): bool
     {
-        $secret = config('services.hubspot.client_secret');
+        $secretConfig = $notification
+            ? 'services.hubspot.notification_secret'
+            : 'services.hubspot.client_secret';
+        $secret = config($secretConfig);
 
         if (blank($secret)) {
-            Log::warning('HubSpot webhook received but services.hubspot.client_secret is not set.');
+            Log::warning("HubSpot webhook received but {$secretConfig} is not set.");
 
             return false;
         }
