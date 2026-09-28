@@ -37,7 +37,8 @@ class ContactSmartdocNotificationWebhookController extends Controller
         }
 
         foreach ($events as $event) {
-            if (($event['propertyName'] ?? null) === 'smartdoc_notifications_resend') {
+            if (($event['propertyName'] ?? null) === 'smartdoc_notifications_resend'
+                && in_array($event['propertyValue'] ?? null, ['true', true], true)) {
                 $this->notificationService->handleContactSmartdocNotification($event);
             }
         }
