@@ -382,6 +382,24 @@ class HubSpotWebhookService
                     $groupId,
                 );
 
+                if (filled($detail->hubspot_contact_id)) {
+                    $contactStatus = $this->hubSpotService->updateContactSmartDocStatus(
+                        (string) $detail->hubspot_contact_id,
+                        $detail->status->value,
+                    );
+                    $contactExpiry = $this->hubSpotService->updateContactSmartDocLinkExpiryDate(
+                        (string) $detail->hubspot_contact_id,
+                    );
+
+                    $this->logService->forGroup($groupId)->webhook('HubSpot: contact SmartDoc status and expiry written', [
+                        'contactId' => $detail->hubspot_contact_id,
+                        'ssid' => $ssid,
+                        'smartdocStatus' => $detail->status->value,
+                        'statusWritten' => filled($contactStatus),
+                        'expiryDateWritten' => filled($contactExpiry),
+                    ]);
+                }
+
                 // Record when the SmartDoc submission was created on the deal.
                 $this->hubSpotService->updateSmartDocRequestSubmissionDate(
                     $dealId,
