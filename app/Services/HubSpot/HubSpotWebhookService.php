@@ -65,12 +65,15 @@ class HubSpotWebhookService
      *
      * @see https://developers.hubspot.com/docs/api/webhooks/validating-requests
      */
-    public function hasValidSignature(Request $request): bool
+    public function hasValidSignature(Request $request, bool $notification = false): bool
     {
-        $secret = config('services.hubspot.client_secret');
+        $secretConfig = $notification
+            ? 'services.hubspot.notification_secret'
+            : 'services.hubspot.client_secret';
+        $secret = config($secretConfig);
 
         if (blank($secret)) {
-            Log::warning('HubSpot webhook received but services.hubspot.client_secret is not set.');
+            Log::warning("HubSpot webhook received but {$secretConfig} is not set.");
 
             return false;
         }
@@ -281,8 +284,7 @@ class HubSpotWebhookService
                     fn (array $contact) => filled($email)
                         && strcasecmp(trim((string) data_get($contact, 'properties.email', '')), trim((string) $email)) === 0,
                 );
-                $phone = data_get($contact, 'properties.phone')
-                    ?: data_get($contact, 'properties.mobilephone');
+                $phone = data_get($contact, 'properties.mobilephone');
                 [$method, $value] = filled($phone) ? ['sms', $phone] : ['email', $email];
 
                 if (blank($value)) {
@@ -329,10 +331,6 @@ class HubSpotWebhookService
         }
     }
 
-    /**
-     * Persist one pending webhook detail per created SmartDoc search, so the
-     * result callback can be matched back to its deal by ssid.
-     */
     protected function recordSmartDocDetails(string $dealId, array $smartDoc, ?string $groupId, array $contacts): void
     {
         $ssids = [];
@@ -343,15 +341,10 @@ class HubSpotWebhookService
             $ssid = data_get($result, 'data.id');
 
             if (blank($ssid)) {
-                // Nothing to wait on, but the subject should still be able to
-                // see why their verification never started.
                 $this->writeSmartDocErrorsToContact($entry, $groupId);
-
                 continue;
             }
 
-            // Keyed on the ssid so a webhook HubSpot redelivers, or a deal that
-            // closes twice, does not leave a second row waiting on one search.
             $detail = $this->webhookDetails->firstOrCreate(
                 [
                     'ssid' => (string) $ssid,
@@ -370,8 +363,6 @@ class HubSpotWebhookService
             if ($detail->wasRecentlyCreated) {
                 $this->registerSmartDocWebhook((string) $ssid, $groupId);
 
-                // The deal carries a status per search, so every subject's ssid
-                // gets its own entry rather than sharing one.
                 $createdAt = data_get($result, 'data.meta.created_at');
 
                 $this->writeSmartDocStatusToDeal(
@@ -383,7 +374,37 @@ class HubSpotWebhookService
                     $detail->hubspot_contact_id,
                 );
 
-                $this->writeSmartDocSsidToContact((string) $ssid, $detail->hubspot_contact_id, $groupId);
+                // Write ssd per contact
+                $this->writeSmartDocSsidToContact(
+                    (string) $ssid,
+                    $detail->hubspot_contact_id,
+                    $detail->search_subject_id,
+                    $groupId,
+                );
+
+                if (filled($detail->hubspot_contact_id)) {
+                    $contactStatus = $this->hubSpotService->updateContactSmartDocStatus(
+                        (string) $detail->hubspot_contact_id,
+                        $detail->status->value,
+                    );
+                    $contactExpiry = $this->hubSpotService->updateContactSmartDocLinkExpiryDate(
+                        (string) $detail->hubspot_contact_id,
+                    );
+
+                    $this->logService->forGroup($groupId)->webhook('HubSpot: contact SmartDoc status and expiry written', [
+                        'contactId' => $detail->hubspot_contact_id,
+                        'ssid' => $ssid,
+                        'smartdocStatus' => $detail->status->value,
+                        'statusWritten' => filled($contactStatus),
+                        'expiryDateWritten' => filled($contactExpiry),
+                    ]);
+                }
+
+                // Record when the SmartDoc submission was created on the deal.
+                $this->hubSpotService->updateSmartDocRequestSubmissionDate(
+                    $dealId,
+                    filled($createdAt) ? Carbon::parse($createdAt) : null,
+                );
             }
 
             $ssids[] = (string) $ssid;
@@ -524,38 +545,28 @@ class HubSpotWebhookService
     /**
      * Write a SmartDoc search id onto the contact it was created for.
      */
-    protected function writeSmartDocSsidToContact(string $ssid, ?string $contactId, ?string $groupId): void
+    protected function writeSmartDocSsidToContact(string $ssid, ?string $contactId, ?string $subjectId, ?string $groupId): void
     {
         if (blank($contactId)) {
             return;
         }
 
-        $response = $this->hubSpotService->updateContactSmartDocSsid($contactId, $ssid);
-
+        $response = $this->hubSpotService->updateContactSmartDocSsid($contactId, $ssid, $subjectId);
+      
         $this->logService->forGroup($groupId)->webhook('HubSpot: contact smartdoc ssid written', [
             'contactId' => $contactId,
             'ssid' => $ssid,
-            // updateContactSmartDocSsid() logs its own failure and returns empty.
-            'written' => filled($response),
+            'subjectId' => $subjectId,
+            'written' => filled($response)
         ]);
     }
 
-    /**
-     * The response written onto a contact for a search that produced no id.
-     *
-     * The shape SmartSearch answers with for an API failure, or the skip
-     * reason and the fields that were missing when it never reached the API.
-     *
-     * @param  array  $entry  one runAmlSearch() or runSmartDocSearch() outcome
-     */
     protected function searchFailurePayload(array $entry): array
     {
         if (filled($entry['errors'] ?? null)) {
             return ['errors' => $entry['errors']];
         }
 
-        // A failure with no error body, such as a timeout or a 5xx, still
-        // carries a message.
         if (filled($entry['error'] ?? null)) {
             return ['errors' => [['title' => $entry['error'], 'status' => $entry['status'] ?? null]]];
         }
@@ -563,11 +574,6 @@ class HubSpotWebhookService
         return ['skipped' => $entry['skipped'], 'missing' => $entry['missing'] ?? []];
     }
 
-    /**
-     * Write a SmartDoc creation that failed or was skipped onto the contact it was attempted for.
-     *
-     * @param  array  $entry  one runSmartDocSearch() outcome
-     */
     protected function writeSmartDocErrorsToContact(array $entry, ?string $groupId): void
     {
         $contactId = $entry['contactId'] ?? null;
@@ -596,9 +602,6 @@ class HubSpotWebhookService
         ]);
     }
 
-    /**
-     * Write the SmartDoc search status back onto the deal in HubSpot.
-     */
     protected function writeSmartDocStatusToDeal(string $dealId, string $ssid, ?WebhookDetailStatus $status, ?Carbon $date, ?string $groupId, ?string $contactId = null): void
     {
         $value = ($status ?? WebhookDetailStatus::Pending)->value;
@@ -615,11 +618,7 @@ class HubSpotWebhookService
         ]);
     }
 
-    /**
-     * Write the SmartDoc search ids back onto the deal in HubSpot.
-     *
-     * @param  array<int, string>  $ssids
-     */
+    
     protected function writeSmartDocSsidsToDeal(string $dealId, array $ssids, ?string $groupId): void
     {
         $value = implode(',', array_unique($ssids));
@@ -634,9 +633,7 @@ class HubSpotWebhookService
         ]);
     }
 
-    /**
-     * Ask SmartSearch to call us back when a SmartDoc search completes.
-     */
+   
     protected function registerSmartDocWebhook(string $ssid, ?string $groupId): void
     {
         try {
@@ -672,12 +669,6 @@ class HubSpotWebhookService
             ->all();
     }
 
-    /**
-     * Run a SmartSearch AML search for each contact on the deal.
-     *
-     * Never throws: a contact that cannot be searched is recorded alongside
-     * the ones that could, so one bad contact does not lose the rest.
-     */
     protected function runAmlSearches(array $contacts): array
     {
         $results = [];
@@ -732,14 +723,9 @@ class HubSpotWebhookService
 
         $result = $this->runAmlSearch(
             [
-                // Owner records carry no salutation, and the AML endpoint
-                // rejects a blank title, so it is fixed here.
                 'title' => self::OWNER_TITLE,
                 'first_name' => $owner['firstName'] ?? null,
                 'last_name' => $owner['lastName'] ?? null,
-                // The owner is searched at their own address where they have
-                // one; the company's is the fallback, since an owner record
-                // often carries nothing but a name and an email.
                 'address1' => $this->firstFilled($owner['address'] ?? null, $properties['address'] ?? null),
                 'city' => $this->firstFilled($owner['city'] ?? null, $properties['city'] ?? null),
                 'postcode' => $this->firstFilled($owner['zip'] ?? null, $properties['zip'] ?? null),
@@ -756,10 +742,6 @@ class HubSpotWebhookService
         return [$result];
     }
 
-    /**
-     * The first value that is actually set, treating HubSpot's empty strings
-     * the same as its nulls so an unset property still falls through.
-     */
     protected function firstFilled(mixed ...$values): mixed
     {
         foreach ($values as $value) {
@@ -771,10 +753,6 @@ class HubSpotWebhookService
         return null;
     }
 
-    /**
-     * A contact's first address line: street_address_1, or the single-line
-     * address property when neither street line has been filled in.
-     */
     protected function streetAddress(array $properties): ?string
     {
         if (filled($properties['street_address_1'] ?? null)) {
@@ -786,10 +764,6 @@ class HubSpotWebhookService
             : null;
     }
 
-    /**
-     * A contact's second address line: street_address_2, or the single-line
-     * address property when that has not already been used as the first line.
-     */
     protected function secondStreetLine(array $properties): ?string
     {
         $address = $this->firstFilled($properties['address'] ?? null);
@@ -800,13 +774,6 @@ class HubSpotWebhookService
         );
     }
 
-    /**
-     * The contacts that go through AML: the ones whose association with the
-     * company labels them a director or a PSC.
-     *
-     * @param  array<int, array>  $contacts
-     * @return array<int, array>
-     */
     protected function amlContacts(array $contacts): array
     {
         return collect($contacts)
@@ -815,13 +782,6 @@ class HubSpotWebhookService
             ->all();
     }
 
-    /**
-     * Whether any of an association's labels marks the contact as an AML
-     * subject. Matched on a lowercased substring so the wording of the label in
-     * HubSpot can vary without the check having to be kept in step with it.
-     *
-     * @param  array<int, string>  $labels
-     */
     protected function hasAmlLabel(array $labels): bool
     {
         return collect($labels)->contains(
@@ -1195,27 +1155,9 @@ class HubSpotWebhookService
             return [];
         }
 
-        $contactIds = $labels->keys();
+        $contacts = $this->hubSpotService->getContact($labels->keys()->all()) ?? [];
 
-        $response = $client->post('/crm/v3/objects/contacts/batch/read', [
-            // honorifictitle/building_number/street_address_1/address/city/zip feed the AML search;
-            // dob_date_of_birth/sex feed the SmartDoc verification.
-            'properties' => ['firstname', 'lastname', 'email', 'phone', 'mobilephone', 'company', 'lifecyclestage', 'honorifictitle', 'flat_number','building_number','address','street_address_2', 'street_address_1', 'city', 'zip', 'state', 'country', 'dob_date_of_birth', 'sex'],
-            'inputs' => $contactIds->map(fn ($id) => ['id' => (string) $id])->all(),
-        ]);
-
-        if ($response->failed()) {
-            Log::warning('Failed to fetch HubSpot contacts.', [
-                'objectType' => $objectType,
-                'objectId' => $objectId,
-                'status' => $response->status(),
-                'body' => $response->json(),
-            ]);
-
-            return [];
-        }
-
-        return collect($response->json('results', []))
+        return collect($contacts)
             ->map(fn (array $contact) => [
                 'id' => $contact['id'] ?? null,
                 'properties' => $contact['properties'] ?? [],

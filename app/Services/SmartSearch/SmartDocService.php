@@ -131,8 +131,6 @@ class SmartDocService
                         ],
                     ],
                 ],
-                // An empty object, not an empty array, so it encodes as {}.
-                // 'meta' => new stdClass,
             ],
         ])->json();
     }

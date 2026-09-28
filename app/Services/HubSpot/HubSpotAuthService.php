@@ -34,9 +34,11 @@ class HubSpotAuthService
      *
      * @param  string|null  $context  what the client was wanted for, for the log line
      */
-    public function client(?string $context = null): ?PendingRequest
+    public function client(?string $context = null, ?string $token = null): ?PendingRequest
     {
-        if (! $this->hasToken()) {
+        $token ??= $this->token();
+
+        if (blank($token)) {
             Log::warning('HubSpot access token is not set; cannot call the HubSpot API.', [
                 'context' => $context,
             ]);
@@ -44,6 +46,6 @@ class HubSpotAuthService
             return null;
         }
 
-        return Http::withToken($this->token())->baseUrl(self::BASE_URL);
+        return Http::withToken($token)->baseUrl(self::BASE_URL);
     }
 }
