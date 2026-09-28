@@ -82,13 +82,6 @@ class HubSpotService
         return $this->updateDealProperties($dealId, ['smartdoc_ssid' => $smartDocSsid]);
     }
 
-    /**
-     * Write the SmartDoc search id onto the contact it was created for,
-     * without disturbing a search already held there.
-     *
-     * A contact whose last attempt was skipped or failed holds no real search,
-     * so that value is written over the same way an empty property is.
-     */
     public function updateContactSmartDocSsid(string $contactId, string $ssid, ?string $subjectId): array
     {
         $existing = $this->contactProperty($contactId, 'smartdoc_ssid');
@@ -118,9 +111,20 @@ class HubSpotService
     }
 
     /**
-     * Whether a property holds one of the markers we write in place of a
-     * search id when the search never ran or failed.
+     * Write the SmartDoc link expiry date for the smartdoc form link
      */
+    public function updateContactSmartDocLinkExpiryDate(string $contactId, ?Carbon $date = null): array
+    {
+        return $this->updateContactProperties($contactId, [
+            'smartdoc_link_expiry_date' => $this->dateTimeProperty($date ?? now()->addDays(5)),
+        ]);
+    }
+
+    public function updateContactSmartDocStatus(string $contactId, string $status): array
+    {
+        return $this->updateContactProperties($contactId, ['smartdoc_status' => $status]);
+    }
+
     protected function isSkippedOrFailed(string $value): bool
     {
         return in_array(Str::lower(trim($value)), [self::SKIPPED, self::FAILED], true);
@@ -234,7 +238,6 @@ class HubSpotService
 
         $searches[$ssid] = [
             'status' => $status,
-            // An ssid we have seen before keeps the date it was first written.
             'date_created' => data_get($searches, [$ssid, 'date_created']) ?? $this->dateProperty($date),
             'date_updated' => $this->dateProperty($date),
             'hubspot_contact_id' => $contactId ?? data_get($searches, [$ssid, 'hubspot_contact_id']),
@@ -382,22 +385,19 @@ class HubSpotService
         ]);
     }
 
-    /**
-     * HubSpot date properties are whole days held at midnight UTC, so anything
-     * with a time on it is rejected unless the time is stripped first.
-     */
     protected function dateProperty(?Carbon $date): string
     {
         return ($date ?? now())->utc()->format('Y-m-d');
     }
 
     /**
-     * Patch properties onto a deal.
-     *
-     * Never throws: the search and its status are already held on the webhook
-     * detail, so a write-back that fails costs the deal properties, not the
-     * record of the search.
+     * HubSpot datetime properties are represented as milliseconds since epoch.
      */
+    protected function dateTimeProperty(?Carbon $date): string
+    {
+        return (string) ($date ?? now())->utc()->getTimestampMs();
+    }
+
     protected function updateDealProperties(string $dealId, array $properties): array
     {
         $client = $this->auth->client('update deal properties');
