@@ -43,7 +43,7 @@ class HubSpotService
      * A contact whose last attempt was skipped or failed holds no real search,
      * so that value is written over the same way an empty property is.
      */
-    public function updateContactSmartDocSsid(string $contactId, string $ssid): array
+    public function updateContactSmartDocSsid(string $contactId, string $ssid, ?string $subjectId): array
     {
         $existing = $this->contactProperty($contactId, 'smartdoc_ssid');
 
@@ -57,7 +57,18 @@ class HubSpotService
             return [];
         }
 
+        // Add subject id to contact
+        $this->updateContactSmartDocSubjectId($contactId, (string) $subjectId);
+
         return $this->updateContactProperties($contactId, ['smartdoc_ssid' => $ssid]);
+    }
+
+    /**
+     * Write the SmartDoc subject id onto the contact it belongs to.
+     */
+    public function updateContactSmartDocSubjectId(string $contactId, string $subjectId): array
+    {
+        return $this->updateContactProperties($contactId, ['smartdoc_subject_id' => $subjectId]);
     }
 
     /**
