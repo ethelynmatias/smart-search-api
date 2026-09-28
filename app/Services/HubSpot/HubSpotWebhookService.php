@@ -1134,27 +1134,9 @@ class HubSpotWebhookService
             return [];
         }
 
-        $contactIds = $labels->keys();
+        $contacts = $this->hubSpotService->getContact($labels->keys()->all()) ?? [];
 
-        $response = $client->post('/crm/v3/objects/contacts/batch/read', [
-            // honorifictitle/building_number/street_address_1/address/city/zip feed the AML search;
-            // dob_date_of_birth/sex feed the SmartDoc verification.
-            'properties' => ['firstname', 'lastname', 'email', 'phone', 'mobilephone', 'company', 'lifecyclestage', 'honorifictitle', 'flat_number','building_number','address','street_address_2', 'street_address_1', 'city', 'zip', 'state', 'country', 'dob_date_of_birth', 'sex'],
-            'inputs' => $contactIds->map(fn ($id) => ['id' => (string) $id])->all(),
-        ]);
-
-        if ($response->failed()) {
-            Log::warning('Failed to fetch HubSpot contacts.', [
-                'objectType' => $objectType,
-                'objectId' => $objectId,
-                'status' => $response->status(),
-                'body' => $response->json(),
-            ]);
-
-            return [];
-        }
-
-        return collect($response->json('results', []))
+        return collect($contacts)
             ->map(fn (array $contact) => [
                 'id' => $contact['id'] ?? null,
                 'properties' => $contact['properties'] ?? [],

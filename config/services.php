@@ -27,6 +27,8 @@ return [
     'hubspot' => [
         'client_secret' => env('HUBSPOT_CLIENT_SECRET'),
         'access_token' => env('HUBSPOT_ACCESS_TOKEN'),
+        'notification_secret' => env('HUBSPOT_NOTIFICATION_SECRET'),
+        'notification_token' => env('HUBSPOT_NOTIFICATION_TOKEN'),
     ],
 
     'postmark' => [

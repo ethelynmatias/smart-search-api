@@ -29,6 +29,52 @@ class HubSpotService
     ) {}
 
     /**
+     * Fetch a HubSpot contact, optionally using the notification app token.
+     */
+    public function getContact(string|array $contactIds, bool $notificationToken = false): array|null
+    {
+        $singleContact = is_string($contactIds);
+        $token = $notificationToken
+            ? (config('services.hubspot.notification_token') ?: config('services.hubspot.access_token'))
+            : null;
+        $client = $this->auth->client('fetch contact details', $token);
+
+        if (blank($client)) {
+            return null;
+        }
+
+        $contactIds = collect(is_array($contactIds) ? $contactIds : [$contactIds])->filter()->values();
+
+        if ($contactIds->isEmpty()) {
+            return [];
+        }
+
+        $response = $client->post('/crm/v3/objects/contacts/batch/read', [
+            'properties' => [
+                'firstname', 'lastname', 'email', 'phone', 'mobilephone', 'company',
+                'lifecyclestage', 'honorifictitle', 'flat_number', 'building_number',
+                'address', 'street_address_2', 'street_address_1', 'city', 'zip',
+                'state', 'country', 'dob_date_of_birth', 'sex','smartdoc_subject_id'
+            ],
+            'inputs' => $contactIds->map(fn ($id) => ['id' => (string) $id])->all(),
+        ]);
+
+        if ($response->failed()) {
+            Log::warning('Failed to fetch HubSpot contact details.', [
+                'contactIds' => $contactIds->all(),
+                'status' => $response->status(),
+                'body' => $response->json(),
+            ]);
+
+            return null;
+        }
+
+        $contacts = $response->json('results', []);
+
+        return $singleContact ? ($contacts[0] ?? null) : $contacts;
+    }
+
+    /**
      * Write the SmartDoc search id back onto the deal.
      */
     public function updateSmartDocSsid(string $dealId, string $smartDocSsid): array
