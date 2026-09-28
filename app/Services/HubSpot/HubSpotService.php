@@ -395,7 +395,7 @@ class HubSpotService
      */
     protected function dateTimeProperty(?Carbon $date): string
     {
-        return (string) ($date ?? now())->utc()->getTimestampMs();
+        return ($date ?? now())->utc()->toIso8601String();
     }
 
     protected function updateDealProperties(string $dealId, array $properties): array
