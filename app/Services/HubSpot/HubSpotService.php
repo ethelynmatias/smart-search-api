@@ -288,7 +288,7 @@ class HubSpotService
     }
 
     /**
-     * Stamp the date the SmartDoc search was requested onto the deal.
+     * Request completed date
      */
     public function updateSmartDocRequestDate(string $dealId, ?Carbon $date = null): array
     {
@@ -298,9 +298,15 @@ class HubSpotService
     }
 
     /**
-     * Stamp the date the UK individual AML search was requested onto the deal,
-     * without disturbing a date already on it.
+     * Request submission date
      */
+    public function updateSmartDocRequestSubmissionDate(string $dealId, ?Carbon $date = null): array
+    {
+        return $this->updateDealProperties($dealId, [
+            'smartdoc_submission_request_date' => $this->dateProperty($date),
+        ]);
+    }
+
     public function updateUkIndividualRequestDate(string $dealId, ?Carbon $date = null): array
     {
         $existing = $this->dealProperty($dealId, 'uk_individual_request_date');

@@ -327,11 +327,7 @@ class HubSpotWebhookService
             }
         }
     }
-
-    /**
-     * Persist one pending webhook detail per created SmartDoc search, so the
-     * result callback can be matched back to its deal by ssid.
-     */
+    
     protected function recordSmartDocDetails(string $dealId, array $smartDoc, ?string $groupId, array $contacts): void
     {
         $ssids = [];
@@ -342,15 +338,10 @@ class HubSpotWebhookService
             $ssid = data_get($result, 'data.id');
 
             if (blank($ssid)) {
-                // Nothing to wait on, but the subject should still be able to
-                // see why their verification never started.
                 $this->writeSmartDocErrorsToContact($entry, $groupId);
-
                 continue;
             }
 
-            // Keyed on the ssid so a webhook HubSpot redelivers, or a deal that
-            // closes twice, does not leave a second row waiting on one search.
             $detail = $this->webhookDetails->firstOrCreate(
                 [
                     'ssid' => (string) $ssid,
@@ -369,8 +360,6 @@ class HubSpotWebhookService
             if ($detail->wasRecentlyCreated) {
                 $this->registerSmartDocWebhook((string) $ssid, $groupId);
 
-                // The deal carries a status per search, so every subject's ssid
-                // gets its own entry rather than sharing one.
                 $createdAt = data_get($result, 'data.meta.created_at');
 
                 $this->writeSmartDocStatusToDeal(
@@ -382,7 +371,14 @@ class HubSpotWebhookService
                     $detail->hubspot_contact_id,
                 );
 
+                // Write ssd per contact
                 $this->writeSmartDocSsidToContact((string) $ssid, $detail->hubspot_contact_id, $groupId);
+
+                // Record when the SmartDoc submission was created on the deal.
+                $this->hubSpotService->updateSmartDocRequestSubmissionDate(
+                    $dealId,
+                    filled($createdAt) ? Carbon::parse($createdAt) : null,
+                );
             }
 
             $ssids[] = (string) $ssid;
