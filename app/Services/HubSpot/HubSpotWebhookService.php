@@ -281,8 +281,7 @@ class HubSpotWebhookService
                     fn (array $contact) => filled($email)
                         && strcasecmp(trim((string) data_get($contact, 'properties.email', '')), trim((string) $email)) === 0,
                 );
-                $phone = data_get($contact, 'properties.phone')
-                    ?: data_get($contact, 'properties.mobilephone');
+                $phone = data_get($contact, 'properties.mobilephone');
                 [$method, $value] = filled($phone) ? ['sms', $phone] : ['email', $email];
 
                 if (blank($value)) {

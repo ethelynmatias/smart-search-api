@@ -65,7 +65,8 @@ class SmartSearchWebhookService
         $this->writeResponseToContact($detail, $payload);
 
         if ($status === WebhookDetailStatus::Completed) {
-            $this->notifySubject($detail);
+            // Remove notify subject to prevent confusion
+            //$this->notifySubject($detail);
             $this->writeRequestDateToDeal($detail, $payload);
         }
     }
