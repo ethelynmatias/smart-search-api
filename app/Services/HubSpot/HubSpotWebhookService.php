@@ -198,7 +198,6 @@ class HubSpotWebhookService
 
         $this->logService->webhook('HubSpot: deal.propertyChange', $event);
 
-        // $contacts = $this->fetchDealContacts((string) $dealId);
         $company = $this->fetchDealCompany((string) $dealId);
 
         // contacts associated with it.
@@ -206,7 +205,7 @@ class HubSpotWebhookService
 
         $contacts = filled($companyId)
             ? $this->fetchCompanyContacts((string) $companyId)
-            : [];
+            : $this->fetchDealContacts((string) $dealId);
 
         $this->logService->webhook("HubSpot: deal {$property} contacts", [
             'dealId' => $dealId,
