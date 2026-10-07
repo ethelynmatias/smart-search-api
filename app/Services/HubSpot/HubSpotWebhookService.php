@@ -675,7 +675,6 @@ class HubSpotWebhookService
         foreach ($contacts as $contact) {
             $properties = $contact['properties'] ?? [];
 
-            // search on aml service
             $results[] = $this->runAmlSearch(
                 [
                     'title' => $properties['honorifictitle'] ?? null,
@@ -684,11 +683,10 @@ class HubSpotWebhookService
                     'address1' => $this->streetAddress($properties),
                     'city' => $properties['city'] ?? null,
                     'postcode' => $properties['zip'] ?? null,
+                    'dob' => HubSpotProperty::date($properties['dob_date_of_birth'] ?? null),
                 ],
                 [
                     'contactId' => $contact['id'] ?? null,
-                    // Both forms: an association can carry more than one label,
-                    // and the payload is what the callback reads back later.
                     'label' => $contact['label'] ?? null,
                     'labels' => $contact['labels'] ?? [],
                 ],
