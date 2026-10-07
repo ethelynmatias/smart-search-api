@@ -855,7 +855,7 @@ class HubSpotWebhookService
             'date_of_birth' => HubSpotProperty::date($properties['dob_date_of_birth'] ?? null),
             'sex' => HubSpotProperty::sex($properties['sex'] ?? null),
             'flat' => $properties['flat_number'] ?? null,
-            'building' => $properties['building_number'] ?? null,
+            'building' => $properties['building_number_'] ?? null,
             'street_1' => $this->streetAddress($properties),
             'street_2' => $this->secondStreetLine($properties),
             'town' => $properties['city'] ?? null,
