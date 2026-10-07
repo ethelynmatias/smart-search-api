@@ -29,7 +29,7 @@ class SmartDocService
                     'status' => 'complete',
 
                     'document_types' => [
-                        'passport',
+                        'passport','e-passport','driving-licence','id-card'
                     ],
 
                     'name' => [
