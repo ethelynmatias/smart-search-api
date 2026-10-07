@@ -754,12 +754,12 @@ class HubSpotWebhookService
 
     protected function streetAddress(array $properties): ?string
     {
-        if (filled($properties['street_address_1'] ?? null)) {
-            return $properties['street_address_1'];
+        if (filled($properties['address'] ?? null)) {
+            return $properties['address'];
         }
 
-        return blank($properties['street_address_2'] ?? null)
-            ? $this->firstFilled($properties['address'] ?? null)
+        return filled($properties['street_address_1'] ?? null)
+            ? $properties['street_address_1']
             : null;
     }
 
@@ -768,7 +768,7 @@ class HubSpotWebhookService
         $address = $this->firstFilled($properties['address'] ?? null);
 
         return $this->firstFilled(
-            $properties['street_address_2'] ?? null,
+            $properties['street_address_1'] ?? null,
             $this->streetAddress($properties) === $address ? null : $address,
         );
     }
