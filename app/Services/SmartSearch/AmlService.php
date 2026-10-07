@@ -24,13 +24,11 @@ class AmlService
                     'type' => 'uk-individual',
                     'attributes' => [
                         'name' => [
-                            // Required by the API, not optional.
                             'title' => $data['title'] ?? null,
                             'first' => $data['first_name'],
                             'last' => $data['last_name'],
+                            'middle'=> $data['middle_name'] ?? null,
                         ],
-
-                        // Plural, and the endpoint only accepts these three subfields.
                         'addresses' => [
                             [
                                 'building' => $data['address1'],

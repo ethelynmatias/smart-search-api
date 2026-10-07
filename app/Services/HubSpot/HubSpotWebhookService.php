@@ -675,20 +675,19 @@ class HubSpotWebhookService
         foreach ($contacts as $contact) {
             $properties = $contact['properties'] ?? [];
 
-            // search on aml service
             $results[] = $this->runAmlSearch(
                 [
                     'title' => $properties['honorifictitle'] ?? null,
                     'first_name' => $properties['firstname'] ?? null,
                     'last_name' => $properties['lastname'] ?? null,
+                    'middle_name' => $properties['middle_initial'] ?? null,
                     'address1' => $this->streetAddress($properties),
                     'city' => $properties['city'] ?? null,
                     'postcode' => $properties['zip'] ?? null,
+                    'dob' => HubSpotProperty::date($properties['dob_date_of_birth'] ?? null),
                 ],
                 [
                     'contactId' => $contact['id'] ?? null,
-                    // Both forms: an association can carry more than one label,
-                    // and the payload is what the callback reads back later.
                     'label' => $contact['label'] ?? null,
                     'labels' => $contact['labels'] ?? [],
                 ],
@@ -754,12 +753,12 @@ class HubSpotWebhookService
 
     protected function streetAddress(array $properties): ?string
     {
-        if (filled($properties['street_address_1'] ?? null)) {
-            return $properties['street_address_1'];
+        if (filled($properties['address'] ?? null)) {
+            return $properties['address'];
         }
 
-        return blank($properties['street_address_2'] ?? null)
-            ? $this->firstFilled($properties['address'] ?? null)
+        return filled($properties['street_address_1'] ?? null)
+            ? $properties['street_address_1']
             : null;
     }
 
@@ -768,7 +767,7 @@ class HubSpotWebhookService
         $address = $this->firstFilled($properties['address'] ?? null);
 
         return $this->firstFilled(
-            $properties['street_address_2'] ?? null,
+            $properties['street_address_1'] ?? null,
             $this->streetAddress($properties) === $address ? null : $address,
         );
     }
@@ -852,12 +851,12 @@ class HubSpotWebhookService
         return [
             'title' => $properties['honorifictitle'] ?? null,
             'first_name' => $properties['firstname'] ?? null,
-            'middle_name' => null,
+            'middle_name' => $properties['middle_initial'] ?? null,
             'last_name' => $properties['lastname'] ?? null,
             'date_of_birth' => HubSpotProperty::date($properties['dob_date_of_birth'] ?? null),
             'sex' => HubSpotProperty::sex($properties['sex'] ?? null),
             'flat' => $properties['flat_number'] ?? null,
-            'building' => $properties['building_number'] ?? null,
+            'building' => $properties['building_number_'] ?? null,
             'street_1' => $this->streetAddress($properties),
             'street_2' => $this->secondStreetLine($properties),
             'town' => $properties['city'] ?? null,
@@ -913,6 +912,7 @@ class HubSpotWebhookService
                     'title' => $properties['honorifictitle'] ?? null,
                     'first_name' => $properties['firstname'] ?? null,
                     'last_name' => $properties['lastname'] ?? null,
+                    'middle_name' => $properties['middle_initial'] ?? null,
                     'flat' => $properties['flat_number'] ?? null,
                     'address1' => $this->streetAddress($properties),
                     'street_1' => $this->streetAddress($properties),

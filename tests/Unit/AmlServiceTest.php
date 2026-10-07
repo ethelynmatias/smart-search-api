@@ -39,6 +39,7 @@ class AmlServiceTest extends TestCase
                 'hs_object_id' => '211509823573',
                 'lifecyclestage' => 'customer',
                 'lastmodifieddate' => '2026-07-28T10:37:11.851Z',
+                'dob_date_of_birth' => '1980-01-01',
             ],
         ];
     }
@@ -190,6 +191,7 @@ class AmlServiceTest extends TestCase
                 'town' => 'London',
                 'postcode' => 'SW1A 2AA',
             ]], $attributes['addresses']);
+            $this->assertSame('1980-01-01', $attributes['date_of_birth']);
 
             // HubSpot fields the endpoint does not accept must not leak through.
             $this->assertArrayNotHasKey('email', $attributes);
