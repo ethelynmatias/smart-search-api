@@ -912,6 +912,7 @@ class HubSpotWebhookService
                     'title' => $properties['honorifictitle'] ?? null,
                     'first_name' => $properties['firstname'] ?? null,
                     'last_name' => $properties['lastname'] ?? null,
+                    'middle_name' => $properties['middle_initial'] ?? null,
                     'flat' => $properties['flat_number'] ?? null,
                     'address1' => $this->streetAddress($properties),
                     'street_1' => $this->streetAddress($properties),
