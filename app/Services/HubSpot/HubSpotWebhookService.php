@@ -680,6 +680,7 @@ class HubSpotWebhookService
                     'title' => $properties['honorifictitle'] ?? null,
                     'first_name' => $properties['firstname'] ?? null,
                     'last_name' => $properties['lastname'] ?? null,
+                    'middle_name' => $properties['middle_initial'] ?? null,
                     'address1' => $this->streetAddress($properties),
                     'city' => $properties['city'] ?? null,
                     'postcode' => $properties['zip'] ?? null,
@@ -850,7 +851,7 @@ class HubSpotWebhookService
         return [
             'title' => $properties['honorifictitle'] ?? null,
             'first_name' => $properties['firstname'] ?? null,
-            'middle_name' => null,
+            'middle_name' => $properties['middle_initial'] ?? null,
             'last_name' => $properties['lastname'] ?? null,
             'date_of_birth' => HubSpotProperty::date($properties['dob_date_of_birth'] ?? null),
             'sex' => HubSpotProperty::sex($properties['sex'] ?? null),

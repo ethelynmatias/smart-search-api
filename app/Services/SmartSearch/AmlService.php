@@ -27,6 +27,7 @@ class AmlService
                             'title' => $data['title'] ?? null,
                             'first' => $data['first_name'],
                             'last' => $data['last_name'],
+                            'middle'=> $data['middle_name'] ?? null,
                         ],
                         'addresses' => [
                             [

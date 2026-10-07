@@ -51,7 +51,7 @@ class HubSpotService
 
         $response = $client->post('/crm/v3/objects/contacts/batch/read', [
             'properties' => [
-                'firstname', 'lastname', 'email', 'phone', 'mobilephone', 'company',
+                'firstname', 'lastname','middle_initial', 'email', 'phone', 'mobilephone', 'company',
                 'lifecyclestage', 'honorifictitle', 'flat_number', 'building_number_',
                 'address', 'street_address_2', 'street_address_1', 'city', 'zip',
                 'state', 'country', 'dob_date_of_birth', 'sex','smartdoc_subject_id'
