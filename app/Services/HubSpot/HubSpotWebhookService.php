@@ -675,6 +675,10 @@ class HubSpotWebhookService
         foreach ($contacts as $contact) {
             $properties = $contact['properties'] ?? [];
 
+            if (filled($properties['aml_ssid'] ?? null)) {
+                continue;
+            }
+
             $results[] = $this->runAmlSearch(
                 [
                     'title' => $properties['honorifictitle'] ?? null,
@@ -799,6 +803,10 @@ class HubSpotWebhookService
         foreach ($contacts as $contact) {
             $properties = $contact['properties'] ?? [];
 
+            if (filled($properties['smartdoc_ssid'] ?? null)) {
+                continue;
+            }
+
             $results[] = $this->runSmartDocSearch(
                 $this->smartDocData($properties),
                 [
@@ -906,6 +914,12 @@ class HubSpotWebhookService
 
         foreach ($contacts as $contact) {
             $properties = $contact['properties'] ?? [];
+
+            $fraudStatus = Str::lower(trim((string) ($properties['smart_search_fraud_status'] ?? '')));
+
+            if (filled($fraudStatus) && ! in_array($fraudStatus, ['failed', 'skipped'], true)) {
+                continue;
+            }
 
             $results[] = $this->runFraudCheck(
                 [
