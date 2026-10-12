@@ -218,6 +218,18 @@ class AmlServiceTest extends TestCase
         Http::assertNotSent(fn (Request $request) => $request->url() === "{$this->baseUrl}/v3/ukindividual/searches");
     }
 
+    public function test_a_contact_with_an_aml_ssid_is_not_searched(): void
+    {
+        Http::fake();
+
+        $results = $this->runAmlSearches([
+            $this->contact(['aml_ssid' => '100347688']),
+        ]);
+
+        $this->assertSame([], $results);
+        Http::assertNotSent(fn (Request $request) => $request->url() === "{$this->baseUrl}/v3/ukindividual/searches");
+    }
+
     public function test_a_failed_search_is_recorded_instead_of_throwing(): void
     {
         $this->fakeSmartSearch(['errors' => [['status' => '500', 'title' => 'Internal Server Error']]], 500);

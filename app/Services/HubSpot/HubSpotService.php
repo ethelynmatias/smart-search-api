@@ -54,7 +54,7 @@ class HubSpotService
                 'firstname', 'lastname','middle_initial', 'email', 'phone', 'mobilephone', 'company',
                 'lifecyclestage', 'honorifictitle', 'flat_number', 'building_number_',
                 'address', 'street_address_2', 'street_address_1', 'city', 'zip',
-                'state', 'country', 'dob_date_of_birth', 'sex','smartdoc_subject_id'
+                'state', 'country', 'dob_date_of_birth', 'sex','smartdoc_subject_id','aml_ssid','smartdoc_ssid','smart_search_fraud_status'
             ],
             'inputs' => $contactIds->map(fn ($id) => ['id' => (string) $id])->all(),
         ]);
