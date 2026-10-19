@@ -48,8 +48,8 @@ class TripleCheckService
                             'postcode' => $data['postcode'] ?? null,
                             'duration' => $data['address_duration'] ?? 1,
                         ]],
-                        'bank' => $data['bank'] ?? [],
-                        'documents' => $data['documents'] ?? [],
+                        //'bank' => $data['bank'] ?? [],
+                        //'documents' => $data['documents'] ?? [],
                     ],
                    /* 'relationships' => [
                         'parent' => [

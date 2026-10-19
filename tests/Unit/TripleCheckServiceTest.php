@@ -95,25 +95,6 @@ class TripleCheckServiceTest extends TestCase
                                 'postcode' => 'SW1A 2AA',
                                 'duration' => 1,
                             ]],
-                            'bank' => [],
-                            'documents' => [],
-                        ],
-                        'relationships' => [
-                            'parent' => [
-                                'data' => ['type' => 'group', 'id' => 'group-id'],
-                            ],
-                            'subject' => [
-                                'data' => ['type' => 'search-subject', 'id' => 'subject-123'],
-                            ],
-                            'uk_individual_config' => [
-                                'data' => ['type' => 'search-config', 'id' => 'uk-config-id'],
-                            ],
-                            'fraud_check_config' => [
-                                'data' => ['type' => 'search-config', 'id' => 'fraud-config-id'],
-                            ],
-                            'smart_doc_config' => [
-                                'data' => ['type' => 'search-config', 'id' => 'smart-doc-config-id'],
-                            ],
                         ],
                     ],
                 ];
