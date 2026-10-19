@@ -10,6 +10,7 @@ use App\Services\SmartSearch\AmlService;
 use App\Services\SmartSearch\Exceptions\SmartSearchException;
 use App\Services\SmartSearch\FraudCheckService;
 use App\Services\SmartSearch\SmartDocService;
+use App\Services\SmartSearch\TripleCheckService;
 use App\Support\HubSpotProperty;
 use Carbon\Carbon;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -17,6 +18,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use Throwable;
 
 class HubSpotWebhookService
 {
@@ -55,6 +57,7 @@ class HubSpotWebhookService
         protected AmlService $amlService,
         protected SmartDocService $smartDocService,
         protected FraudCheckService $fraudCheckService,
+        protected TripleCheckService $tripleCheckService,
         protected WebhookDetailRepositoryInterface $webhookDetails,
         protected HubSpotAuthService $hubSpotAuth,
         protected HubSpotService $hubSpotService,
@@ -196,7 +199,8 @@ class HubSpotWebhookService
             return;
         }
 
-        $this->logService->webhook('HubSpot: deal.propertyChange', $event);
+        $eventLog = $this->logService->webhook('HubSpot: deal.propertyChange', $event);
+        $logGroupId = $eventLog->log_group_id;
 
         $company = $this->fetchDealCompany((string) $dealId);
 
@@ -220,52 +224,95 @@ class HubSpotWebhookService
         // company is verified with SmartDoc alone.
         $amlContacts = $this->amlContacts($contacts);
 
-        $aml = in_array($property, ['smart_search', 'smart_search_local_testing'], true) && filled($amlContacts)
-            ? $this->runAmlSearches($amlContacts) : [];
+        $aml = [];
 
-        if (filled($aml)) {
-            // Fold the results back into the same log record, so the whole deal
+        try {
+            $aml = in_array($property, ['smart_search', 'smart_search_local_testing'], true) && filled($amlContacts)
+                ? $this->runAmlSearches($amlContacts)
+                : [];
 
-            $amlLog = $this->logService->webhook("HubSpot: deal {$property} aml", [
-                'dealId' => $dealId,
-                'propertyName' => $property,
-                'aml' => $aml,
-            ]);
+            if (filled($aml)) {
+                $this->logService->forGroup($logGroupId)->webhook("HubSpot: deal {$property} aml", [
+                    'dealId' => $dealId,
+                    'propertyName' => $property,
+                    'aml' => $aml,
+                ]);
 
-            $this->writeAmlSsidsToDeal((string) $dealId, $aml, $amlLog->log_group_id);
-            $this->writeUkIndividualRequestDateToDeal((string) $dealId, $aml, $amlLog->log_group_id);
+                $this->writeAmlSsidsToDeal((string) $dealId, $aml, $logGroupId);
+                $this->writeUkIndividualRequestDateToDeal((string) $dealId, $aml, $logGroupId);
+            }
+        } catch (Throwable $exception) {
+            $this->logWorkflowFailure($logGroupId, "HubSpot: deal {$property} aml failed", $dealId, $exception);
         }
 
-        $smartDoc = in_array($property, ['smart_search', 'smart_search_local_testing'], true) && filled($contacts)
-            ? $this->runSmartDocSearches($contacts)
-            : [];
+        $smartDoc = [];
 
-        if (blank($smartDoc)) {
-            return;
+        try {
+            $smartDoc = in_array($property, ['smart_search', 'smart_search_local_testing'], true) && filled($contacts)
+                ? $this->runSmartDocSearches($contacts)
+                : [];
+
+            if (filled($smartDoc)) {
+                $this->logService->forGroup($logGroupId)->webhook("HubSpot: deal {$property} smartdoc", [
+                    'dealId' => $dealId,
+                    'propertyName' => $property,
+                    'smartdoc' => $smartDoc,
+                ]);
+
+                $this->recordSmartDocDetails((string) $dealId, $smartDoc, $logGroupId, $contacts);
+            }
+        } catch (Throwable $exception) {
+            $this->logWorkflowFailure($logGroupId, "HubSpot: deal {$property} smartdoc failed", $dealId, $exception);
         }
 
-        $smartDocLog = $this->logService->webhook("HubSpot: deal {$property} smartdoc", [
+        $fraudChecks = [];
+
+        try {
+            $fraudChecks = $this->runFraudChecks($contacts);
+
+            if (filled($fraudChecks)) {
+                $this->logService->forGroup($logGroupId)->webhook("HubSpot: deal {$property} fraud check", [
+                    'dealId' => $dealId,
+                    'propertyName' => $property,
+                    'fraudChecks' => $fraudChecks,
+                ]);
+
+                $this->recordFraudCheckDetails((string) $dealId, $fraudChecks, $logGroupId);
+            }
+        } catch (Throwable $exception) {
+            $this->logWorkflowFailure($logGroupId, "HubSpot: deal {$property} fraud check failed", $dealId, $exception);
+        }
+
+        try {
+            $tripleChecks = $this->runTripleChecks($contacts);
+
+            if (filled($tripleChecks)) {
+                $this->logService->forGroup($logGroupId)->webhook("HubSpot: deal {$property} triple check", [
+                    'dealId' => $dealId,
+                    'propertyName' => $property,
+                    'tripleChecks' => $tripleChecks,
+                ]);
+            }
+        } catch (Throwable $exception) {
+            $this->logWorkflowFailure($logGroupId, "HubSpot: deal {$property} triple check failed", $dealId, $exception);
+        }
+    }
+
+    /**
+     * Record a workflow failure without preventing the remaining checks from running.
+     */
+    protected function logWorkflowFailure(string $logGroupId, string $message, mixed $dealId, Throwable $exception): void
+    {
+        Log::error($message, [
             'dealId' => $dealId,
-            'propertyName' => $property,
-            'smartdoc' => $smartDoc,
+            'error' => $exception->getMessage(),
         ]);
 
-        $this->recordSmartDocDetails((string) $dealId, $smartDoc, $smartDocLog->log_group_id, $contacts);
-
-        // Patch fraud check
-        $fraudChecks = $this->runFraudChecks($contacts);
-
-        if (blank($fraudChecks)) {
-            return;
-        }
-
-        $fraudCheckLog = $this->logService->webhook("HubSpot: deal {$property} fraud check", [
+        $this->logService->forGroup($logGroupId)->webhook($message, [
             'dealId' => $dealId,
-            'propertyName' => $property,
-            'fraudChecks' => $fraudChecks,
+            'error' => $exception->getMessage(),
+            'exception' => $exception::class,
         ]);
-
-        $this->recordFraudCheckDetails((string) $dealId, $fraudChecks, $fraudCheckLog->log_group_id);
     }
 
     public function notificationSmartDocSubmission(array $smartDoc, array $contacts)
@@ -981,6 +1028,77 @@ class HubSpotWebhookService
 
             return [...$meta, 'error' => $e->getMessage(), 'status' => $e->status, 'errors' => $e->errors];
         }
+    }
+
+    /**
+     * Run a TripleCheck for each contact after the fraud check and describe
+     * every outcome for the deal log.
+     *
+     * @return array<int, array> one entry per contact, in the order given
+     */
+    protected function runTripleChecks(array $contacts): array
+    {
+        $results = [];
+
+        foreach ($contacts as $contact) {
+            $properties = $contact['properties'] ?? [];
+            $data = [
+                'title' => $properties['honorifictitle'] ?? null,
+                'first_name' => $properties['firstname'] ?? null,
+                'last_name' => $properties['lastname'] ?? null,
+                'middle_name' => $properties['middle_initial'] ?? null,
+                'flat' => $properties['flat_number'] ?? null,
+                'address1' => $this->streetAddress($properties),
+                'street_1' => $this->streetAddress($properties),
+                'street_2' => $this->secondStreetLine($properties),
+                'city' => $properties['city'] ?? null,
+                'region' => $properties['state'] ?? null,
+                'postcode' => $properties['zip'] ?? null,
+                'country' => $properties['country'] ?? 'GBR',
+                'dob' => HubSpotProperty::date($properties['dob_date_of_birth'] ?? null),
+                'sex' => HubSpotProperty::sex($properties['sex'] ?? null),
+                'client_reference' => $contact['id'] ?? null,
+                'search_subject_id' => $properties['smartdoc_subject_id'] ?? null,
+                'mobile' => HubSpotProperty::phone(
+                    $this->firstFilled(
+                        $properties['mobilephone'] ?? null,
+                        $properties['phone'] ?? null,
+                    ),
+                    $properties['country'] ?? 'GBR',
+                ),
+                'email' => $properties['email'] ?? null,
+            ];
+            $meta = [
+                'contactId' => $contact['id'] ?? null,
+                'label' => $contact['label'] ?? null,
+                'labels' => $contact['labels'] ?? [],
+            ];
+
+            $missing = array_values(array_filter(
+                self::FRAUD_CHECK_REQUIRED_FIELDS,
+                fn (string $field) => blank($data[$field] ?? null),
+            ));
+
+            if (filled($missing)) {
+                $results[] = [...$meta, 'skipped' => 'missing required triple check fields', 'missing' => $missing];
+
+                continue;
+            }
+
+            try {
+                $results[] = [...$meta, 'result' => $this->tripleCheckService->create($data)];
+            } catch (SmartSearchException $e) {
+                Log::warning('TripleCheck creation failed for HubSpot subject.', [
+                    ...$meta,
+                    'status' => $e->status,
+                    'error' => $e->getMessage(),
+                ]);
+
+                $results[] = [...$meta, 'error' => $e->getMessage(), 'status' => $e->status, 'errors' => $e->errors];
+            }
+        }
+
+        return $results;
     }
 
     /**

@@ -18,6 +18,10 @@ return [
         'base_url' => env('SMARTSEARCH_BASE_URL'),
         'app_id' => env('SMARTSEARCH_APP_ID'),
         'secret' => env('SMARTSEARCH_SECRET'),
+        'group_id' => env('SMARTSEARCH_GROUP_ID'),
+        'uk_individual_config_id' => env('SMARTSEARCH_UK_INDIVIDUAL_CONFIG_ID'),
+        'fraud_check_config_id' => env('SMARTSEARCH_FRAUD_CHECK_CONFIG_ID'),
+        'smart_doc_config_id' => env('SMARTSEARCH_SMART_DOC_CONFIG_ID'),
         // Where SmartSearch calls back when a search completes. Falls back to
         // this app's own route; set it explicitly when the app is not reachable
         // at its APP_URL (local tunnels, for instance).

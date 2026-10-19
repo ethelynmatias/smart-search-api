@@ -229,6 +229,10 @@ Credentials and the search result callback URL:
 SMARTSEARCH_BASE_URL="https://api.sandbox.app.smartsearch.com"
 SMARTSEARCH_APP_ID=your-app-id
 SMARTSEARCH_SECRET=your-secret
+SMARTSEARCH_GROUP_ID=your-group-id
+SMARTSEARCH_UK_INDIVIDUAL_CONFIG_ID=your-uk-individual-config-id
+SMARTSEARCH_FRAUD_CHECK_CONFIG_ID=your-fraud-check-config-id
+SMARTSEARCH_SMART_DOC_CONFIG_ID=your-smart-doc-config-id
 SMARTSEARCH_WEBHOOK_URL=
 ```
 
