@@ -175,6 +175,46 @@ class HubSpotService
     }
 
     /**
+     * Write the outcome of the TripleCheck onto the contact it was run for.
+     */
+    public function updateContactTripleCheckStatus(string $contactId, string $status): array
+    {
+        return $this->updateContactProperties($contactId, [
+            'triple_check_status' => $status,
+        ]);
+    }
+
+    /**
+     * Write the TripleCheck search id onto the contact it was created for.
+     */
+    public function updateContactTripleCheckSsid(string $contactId, string $ssid): array
+    {
+        return $this->updateContactProperties($contactId, [
+            'triple_check_ssid' => $ssid,
+        ]);
+    }
+
+    /**
+     * Write the TripleCheck link expiry date onto the contact.
+     */
+    public function updateContactTripleCheckLinkExpiryDate(string $contactId, ?Carbon $date = null): array
+    {
+        return $this->updateContactProperties($contactId, [
+            'triple_check_link_expiry_date' => $this->dateTimeProperty($date ?? now()->addDays(5)),
+        ]);
+    }
+
+    /**
+     * Write the Smart Search TripleCheck value onto the contact.
+     */
+    public function updateContactSmartSearchTripleCheck(string $contactId, string $value): array
+    {
+        return $this->updateContactProperties($contactId, [
+            'smart_search_triple_check' => $value,
+        ]);
+    }
+
+    /**
      * Append a response to a contact property, one per line, so an earlier
      * response is kept rather than written over.
      *
