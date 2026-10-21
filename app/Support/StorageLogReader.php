@@ -22,7 +22,8 @@ class StorageLogReader
      * Only the tail of a file is parsed: a log left to grow for weeks is not
      * worth holding in memory, and its oldest lines are not what is being read.
      */
-    protected const MAX_BYTES = 5 * 1024 * 1024;
+    // Keep the log page bounded even when a file contains a very large trace.
+    protected const MAX_BYTES = 1024 * 1024;
 
     protected const HEADER = '/^\[(\d{4}-\d{2}-\d{2}[ T][\d:.]+(?:[+-]\d{2}:\d{2})?)\] (\S+?)\.([A-Z]+): (.*)$/';
 
@@ -80,12 +81,18 @@ class StorageLogReader
      */
     public function levels(?string $file): array
     {
-        return $this->entries($file)
-            ->pluck('level')
-            ->unique()
-            ->sort()
-            ->values()
-            ->all();
+        $levels = [];
+
+        foreach ($this->lines($file) as $line) {
+            if (preg_match(self::HEADER, $line, $matches)) {
+                $levels[$matches[3]] = true;
+            }
+        }
+
+        $levels = array_keys($levels);
+        sort($levels);
+
+        return $levels;
     }
 
     /**
@@ -187,12 +194,64 @@ class StorageLogReader
         }
 
         $path = storage_path('logs/'.$file);
-        $size = filesize($path) ?: 0;
+        $size = filesize($path);
 
-        if ($size <= self::MAX_BYTES) {
-            return (string) file_get_contents($path);
+        if ($size === false) {
+            return '';
         }
 
-        return (string) file_get_contents($path, offset: $size - self::MAX_BYTES);
+        $offset = max(0, $size - self::MAX_BYTES);
+
+        return (string) file_get_contents($path, offset: $offset, length: self::MAX_BYTES);
+    }
+
+    /**
+     * Yield only the bounded tail of a log file, one line at a time.
+     *
+     * @return iterable<int, string>
+     */
+    protected function lines(?string $file): iterable
+    {
+        $path = $this->logPath($file);
+
+        if ($path === null) {
+            return;
+        }
+
+        $size = filesize($path);
+
+        if ($size === false) {
+            return;
+        }
+
+        $handle = fopen($path, 'rb');
+
+        if ($handle === false) {
+            return;
+        }
+
+        try {
+            $offset = max(0, $size - self::MAX_BYTES);
+            fseek($handle, $offset);
+
+            if ($offset > 0) {
+                fgets($handle);
+            }
+
+            while (($line = fgets($handle)) !== false) {
+                yield rtrim($line, "\r\n");
+            }
+        } finally {
+            fclose($handle);
+        }
+    }
+
+    protected function logPath(?string $file): ?string
+    {
+        if (blank($file) || ! in_array($file, $this->files(), true)) {
+            return null;
+        }
+
+        return storage_path('logs/'.$file);
     }
 }

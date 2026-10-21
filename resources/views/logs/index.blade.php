@@ -142,7 +142,6 @@
                                 <th>Group</th>
                                 <th>Type</th>
                                 <th>Message</th>
-                                <th>Payload</th>
                                 <th>Date</th>
                             </tr>
                         </thead>
@@ -166,25 +165,12 @@
                                     </td>
                                     <td><span class="badge {{ $log->type->value }}">{{ $log->type->value }}</span></td>
                                     <td>{{ $log->message ?? '—' }}</td>
-                                    <td>
-                                        @if (! $log->payload)
-                                            <span class="muted">—</span>
-                                        @elseif ($log->log_group_id)
-                                            {{-- Off the group view the payload stays collapsed behind its group. --}}
-                                            <a
-                                                class="payload-link"
-                                                href="{{ route('logs.index', array_filter(['token' => $token, 'type' => request('type'), 'group' => $log->log_group_id])) }}"
-                                            >View payload</a>
-                                        @else
-                                            <span class="muted">—</span>
-                                        @endif
-                                    </td>
                                     <td class="nowrap">{{ $log->created_at->format('Y-m-d H:i:s') }}</td>
                                 </tr>
 
                             @empty
                                 <tr>
-                                    <td colspan="6" class="empty">
+                                    <td colspan="5" class="empty">
                                         @if (filled($ssid))
                                             Nothing found for <code>{{ $ssid }}</code>.
                                         @else
