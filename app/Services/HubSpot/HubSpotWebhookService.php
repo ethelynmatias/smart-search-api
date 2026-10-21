@@ -286,6 +286,8 @@ class HubSpotWebhookService
         try {
             $tripleChecks = $this->runTripleChecks($contacts);
 
+            $this->writeTripleCheckStatusesToContacts($tripleChecks, $logGroupId);
+
             if (filled($tripleChecks)) {
                 $this->logService->forGroup($logGroupId)->webhook("HubSpot: deal {$property} triple check", [
                     'dealId' => $dealId,
@@ -674,7 +676,6 @@ class HubSpotWebhookService
         $this->logService->forGroup($groupId)->webhook('HubSpot: deal smartdoc ssid written', [
             'dealId' => $dealId,
             'smartdocSsid' => $value,
-            // updateSmartDocSsid() logs its own failure and returns empty.
             'written' => filled($response),
         ]);
     }
@@ -1099,6 +1100,29 @@ class HubSpotWebhookService
         }
 
         return $results;
+    }
+
+    protected function writeTripleCheckStatusesToContacts(array $tripleChecks, ?string $groupId): void
+    {
+        foreach ($tripleChecks as $entry) {
+            $contactId = $entry['contactId'] ?? null;
+
+            if (blank($contactId)) {
+                continue;
+            }
+
+            $status = array_key_exists('result', $entry) ? 'successful' : 'failed';
+            $written = $this->hubSpotService->updateContactSmartSearchTripleCheck(
+                (string) $contactId,
+                $status,
+            );
+
+            $this->logService->forGroup($groupId)->webhook('HubSpot: contact triple check status written', [
+                'contactId' => $contactId,
+                'status' => $status,
+                'written' => filled($written),
+            ]);
+        }
     }
 
     /**
