@@ -1176,6 +1176,9 @@ class HubSpotWebhookService
                     $method,
                     $value,
                 );
+                $expiryDateUpdate = $this->hubSpotService->updateContactTripleCheckLinkExpiryDate(
+                    (string) $contactId,
+                );
                 $this->notifiedSubjectIds[] = (string) $subjectId;
 
                 $this->logService->forGroup($groupId)->webhook('TripleCheck notification sent.', [
@@ -1183,6 +1186,7 @@ class HubSpotWebhookService
                     'searchSubjectId' => $subjectId,
                     'method' => $method,
                     'response' => $response,
+                    'expiryDateUpdated' => filled($expiryDateUpdate),
                 ]);
             } catch (Throwable $exception) {
                 Log::warning('TripleCheck notification failed.', [
