@@ -84,4 +84,9 @@ class NotificationService
             ]);
         }
     }
+
+    public function handleContactTripleCheckNotification(array $payload): void
+    {
+        
+    }
 }

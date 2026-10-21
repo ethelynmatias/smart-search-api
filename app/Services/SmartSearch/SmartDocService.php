@@ -148,36 +148,6 @@ class SmartDocService
         ])->json();
     }
 
-    /* Fetch all documents */
-    public function listAllDocuments(
-        string $subject,
-        string $cabinet,
-        string $category,
-        string $documentType,
-        string $retrieved,
-        ?string $include = 'types,categories',
-    ): array {
-        //$size = min($size, 25);
-
-        $query = [
-            'filter[subject]' => $subject,
-            'filter[cabinet]' => $cabinet,
-            'filter[category]' => $category,
-            'filter[document-type]' => $documentType,
-            'filter[retrieved]' => $retrieved,
-            //'page[number]' => $page,
-            //'page[size]' => $size,
-        ];
-
-        if (filled($include)) {
-            $query['include'] = $include;
-        }
-
-        return $this->client
-            ->get('/v3/document', $query)
-            ->json();
-    }
-
     public function listCategories(): array
     {
         return $this->client

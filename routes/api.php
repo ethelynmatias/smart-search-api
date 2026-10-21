@@ -13,3 +13,6 @@ Route::post('/hubspot/contact-smartdoc-notification', ContactSmartdocNotificatio
 
 Route::post('/smartsearch/search', [SmartSearchWebhookController::class, 'handle'])
     ->name('webhooks.smartsearch');
+
+Route::post('/smartsearch/triplecheck', [SmartSearchWebhookController::class, 'handleTripleCheck'])
+    ->name('webhooks.smartsearch.triplecheck');

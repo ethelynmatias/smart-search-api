@@ -12,14 +12,6 @@ class StorageLogController extends Controller
         protected StorageLogReader $reader,
     ) {}
 
-    /**
-     * Display the entries of one file under storage/logs.
-     *
-     * Guarded the same way as the database log page, and kept out of search
-     * engines by the same PreventIndexing route middleware: the url carries the
-     * access token, and a stack trace names paths and query values that no
-     * crawler should hold on to.
-     */
     public function index(Request $request, string $token): Response
     {
         $accessToken = config('logs.access_token');

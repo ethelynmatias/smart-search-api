@@ -3,6 +3,7 @@
 namespace Tests\Unit;
 
 use App\Services\HubSpot\HubSpotService;
+use Carbon\Carbon;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Http;
@@ -118,5 +119,81 @@ class HubSpotServiceTest extends TestCase
 
         Http::assertNothingSent();
         $this->assertSame([], $response);
+    }
+
+    public function test_triple_check_status_is_written_to_a_contact(): void
+    {
+        Http::fake([
+            "{$this->baseUrl}/crm/v3/objects/contacts/{$this->contactId}" => Http::response([
+                'id' => $this->contactId,
+                'properties' => ['triple_check_status' => 'clear'],
+            ]),
+        ]);
+
+        $response = app(HubSpotService::class)->updateContactTripleCheckStatus(
+            $this->contactId,
+            'clear',
+        );
+
+        $this->assertSame(['triple_check_status' => 'clear'], $this->patchedProperties());
+        $this->assertSame($this->contactId, $response['id']);
+    }
+
+    public function test_triple_check_ssid_is_written_to_a_contact(): void
+    {
+        Http::fake([
+            "{$this->baseUrl}/crm/v3/objects/contacts/{$this->contactId}" => Http::response([
+                'id' => $this->contactId,
+                'properties' => ['triple_check_ssid' => 'triple-check-123'],
+            ]),
+        ]);
+
+        $response = app(HubSpotService::class)->updateContactTripleCheckSsid(
+            $this->contactId,
+            'triple-check-123',
+        );
+
+        $this->assertSame(['triple_check_ssid' => 'triple-check-123'], $this->patchedProperties());
+        $this->assertSame($this->contactId, $response['id']);
+    }
+
+    public function test_triple_check_link_expiry_date_is_written_to_a_contact(): void
+    {
+        Http::fake([
+            "{$this->baseUrl}/crm/v3/objects/contacts/{$this->contactId}" => Http::response([
+                'id' => $this->contactId,
+                'properties' => ['triple_check_link_expiry_date' => '2026-10-25T12:30:00+00:00'],
+            ]),
+        ]);
+
+        $response = app(HubSpotService::class)->updateContactTripleCheckLinkExpiryDate(
+            $this->contactId,
+            Carbon::parse('2026-10-25 12:30:00', 'UTC'),
+        );
+
+        $this->assertSame([
+            'triple_check_link_expiry_date' => '2026-10-25T12:30:00+00:00',
+        ], $this->patchedProperties());
+        $this->assertSame($this->contactId, $response['id']);
+    }
+
+    public function test_smart_search_triple_check_is_written_to_a_contact(): void
+    {
+        Http::fake([
+            "{$this->baseUrl}/crm/v3/objects/contacts/{$this->contactId}" => Http::response([
+                'id' => $this->contactId,
+                'properties' => ['smart_search_triple_check' => 'complete'],
+            ]),
+        ]);
+
+        $response = app(HubSpotService::class)->updateContactSmartSearchTripleCheck(
+            $this->contactId,
+            'complete',
+        );
+
+        $this->assertSame([
+            'smart_search_triple_check' => 'complete',
+        ], $this->patchedProperties());
+        $this->assertSame($this->contactId, $response['id']);
     }
 }

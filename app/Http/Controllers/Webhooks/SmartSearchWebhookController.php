@@ -32,4 +32,22 @@ class SmartSearchWebhookController extends Controller
 
         return response()->noContent();
     }
+
+    /**
+     * Handle a TripleCheck callback and write its status to the HubSpot contact.
+     */
+    public function handleTripleCheck(Request $request): Response
+    {
+        $payload = $request->all();
+
+        $this->logService->webhook('SmartSearch: TripleCheck callback received', [
+            'ip' => $request->ip(),
+            'contentType' => $request->header('Content-Type'),
+            'raw' => blank($payload) ? $request->getContent() : null,
+        ]);
+
+        $this->smartSearchWebhookService->handleTripleCheckCallback($payload);
+
+        return response()->noContent();
+    }
 }

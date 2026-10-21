@@ -17,73 +17,7 @@ class SmartSearchController extends Controller
     public function documents(string $token): Response
     {
 
-        $subjectId = '11983718';
-        $documents = $this->attempt(fn () => $this->smartDocService->listAllDocuments(
-            subject: $subjectId,
-            cabinet: 'company',
-            category: 'company',
-            documentType: 'report',
-            retrieved: 'false',
-
-            include: 'types,categories',
-        ));
-
-
-      /*
-        $accessToken = config('logs.access_token');
-
-        abort_unless(filled($accessToken) && hash_equals($accessToken, $token), 404);
-
-          //exit("in1");
-
-        // Fixed values for now: Real Inbound Ltd.
-        $companyNumber = '11983718';
-
-        // The document list is filtered by a SmartSearch search subject ID,
-        // which the company lookup does not return. Set it once known.
-        $subjectId = null;
-
-        $output = [
-            'lookup' => $this->attempt(fn () => $this->smartDocService->findUkBusiness($companyNumber)),
-        ];
-
-        if (blank($subjectId)) {
-            $output['documents'] = 'Skipped: no SmartSearch subject ID set.';
-
-            return $this->printed($output);
-        }
-
-      
-        $documents = $this->attempt(fn () => $this->smartDocService->listAllDocuments(
-            subject: $subjectId,
-            cabinet: 'company',
-            category: 'company',
-            documentType: 'report',
-            retrieved: 'false',
-            page: 1,
-            size: 25,
-            include: 'types,categories',
-        ));
-
-        $output['documents'] = $documents;
-
-        foreach ($documents['data'] ?? [] as $document) {
-            $documentId = $document['id'];
-
-            $output['pdfs'][$documentId] = [
-                'pdf_link' => $this->attempt(fn () => $this->smartDocService->getPdfLink($documentId)),
-                'pdf' => $this->attempt(function () use ($documentId) {
-                    $pdf = $this->smartDocService->getPdf($documentId);
-
-                    return [
-                        'content_type' => $pdf->header('Content-Type'),
-                        'bytes' => strlen($pdf->body()),
-                    ];
-                }),
-            ];
-        }
-
-        return $this->printed($output); */
+       
     }
 
     public function documentCategories(string $token): Response

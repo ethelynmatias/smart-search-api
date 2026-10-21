@@ -175,6 +175,37 @@ class HubSpotService
     }
 
     /**
+     * Write the outcome of the TripleCheck onto the contact it was run for.
+     */
+    public function updateContactTripleCheckStatus(string $contactId, string $status): array
+    {
+        return $this->updateContactProperties($contactId, [
+            'triple_check_status' => $status,
+        ]);
+    }
+
+    public function updateContactTripleCheckSsid(string $contactId, string $ssid): array
+    {
+        return $this->updateContactProperties($contactId, [
+            'triple_check_ssid' => $ssid,
+        ]);
+    }
+
+    public function updateContactTripleCheckLinkExpiryDate(string $contactId, ?Carbon $date = null): array
+    {
+        return $this->updateContactProperties($contactId, [
+            'triple_check_link_expiry_date' => $this->dateTimeProperty($date ?? now()->addDays(5)),
+        ]);
+    }
+
+    public function updateContactSmartSearchTripleCheck(string $contactId, string $value): array
+    {
+        return $this->updateContactProperties($contactId, [
+            'smart_search_triple_check' => $value,
+        ]);
+    }
+
+    /**
      * Append a response to a contact property, one per line, so an earlier
      * response is kept rather than written over.
      *
@@ -229,9 +260,6 @@ class HubSpotService
         return $response->json();
     }
 
-    /**
-     * Record a SmartDoc search status on the deal, keyed by ssid:
-     */
     public function updateSmartDocStatus(string $dealId, string $ssid, string $status, ?Carbon $date = null, ?string $contactId = null): array
     {
         $searches = $this->smartDocStatuses($dealId);
@@ -270,9 +298,6 @@ class HubSpotService
         return $searches;
     }
 
-    /**
-     * Add the UK individual AML search ids to the ones already on the deal.
-     */
     public function updateSmartSearchUkIndividualSsid(string $dealId, string $ssid): array
     {
         $existing = $this->dealProperty($dealId, 'smartsearch_uk_individual_ssid');
@@ -289,9 +314,6 @@ class HubSpotService
         ]);
     }
 
-    /**
-     * Read one property off a contact.
-     */
     protected function contactProperty(string $contactId, string $property): ?string
     {
         $client = $this->auth->client("fetch contact {$property}");
@@ -318,9 +340,6 @@ class HubSpotService
         return $response->json("properties.{$property}");
     }
 
-    /**
-     * Read one property off a deal.
-     */
     protected function dealProperty(string $dealId, string $property): ?string
     {
         $client = $this->auth->client("fetch deal {$property}");

@@ -32,7 +32,7 @@ class LogRepository implements LogRepositoryInterface
      * Without a group filter, only the latest record of each group is shown,
      * with a `group_count` of how many records the group holds.
      */
-    public function paginate(?LogType $type = null, ?string $logGroupId = null, int $perPage = 25, ?string $search = null): LengthAwarePaginator
+    public function paginate(?LogType $type = null, ?string $logGroupId = null, int $perPage = 20, ?string $search = null): LengthAwarePaginator
     {
         return Log::query()
             ->select('logs.*')

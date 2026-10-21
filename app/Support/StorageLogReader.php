@@ -46,7 +46,7 @@ class StorageLogReader
      * @param  string|null  $level  a Monolog level name, matched case-insensitively
      * @param  string|null  $search  matched against the whole entry, trace included
      */
-    public function paginate(?string $file, ?string $level = null, ?string $search = null, int $perPage = 25, ?int $page = null): LengthAwarePaginator
+    public function paginate(?string $file, ?string $level = null, ?string $search = null, int $perPage = 20, ?int $page = null): LengthAwarePaginator
     {
         $entries = $this->entries($file)
             ->when(filled($level), fn (Collection $entries) => $entries->filter(
