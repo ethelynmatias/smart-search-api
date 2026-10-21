@@ -184,9 +184,6 @@ class HubSpotService
         ]);
     }
 
-    /**
-     * Write the TripleCheck search id onto the contact it was created for.
-     */
     public function updateContactTripleCheckSsid(string $contactId, string $ssid): array
     {
         return $this->updateContactProperties($contactId, [
@@ -194,9 +191,6 @@ class HubSpotService
         ]);
     }
 
-    /**
-     * Write the TripleCheck link expiry date onto the contact.
-     */
     public function updateContactTripleCheckLinkExpiryDate(string $contactId, ?Carbon $date = null): array
     {
         return $this->updateContactProperties($contactId, [
@@ -204,9 +198,6 @@ class HubSpotService
         ]);
     }
 
-    /**
-     * Write the Smart Search TripleCheck value onto the contact.
-     */
     public function updateContactSmartSearchTripleCheck(string $contactId, string $value): array
     {
         return $this->updateContactProperties($contactId, [
@@ -269,9 +260,6 @@ class HubSpotService
         return $response->json();
     }
 
-    /**
-     * Record a SmartDoc search status on the deal, keyed by ssid:
-     */
     public function updateSmartDocStatus(string $dealId, string $ssid, string $status, ?Carbon $date = null, ?string $contactId = null): array
     {
         $searches = $this->smartDocStatuses($dealId);
@@ -310,9 +298,6 @@ class HubSpotService
         return $searches;
     }
 
-    /**
-     * Add the UK individual AML search ids to the ones already on the deal.
-     */
     public function updateSmartSearchUkIndividualSsid(string $dealId, string $ssid): array
     {
         $existing = $this->dealProperty($dealId, 'smartsearch_uk_individual_ssid');
@@ -329,9 +314,6 @@ class HubSpotService
         ]);
     }
 
-    /**
-     * Read one property off a contact.
-     */
     protected function contactProperty(string $contactId, string $property): ?string
     {
         $client = $this->auth->client("fetch contact {$property}");
@@ -358,9 +340,6 @@ class HubSpotService
         return $response->json("properties.{$property}");
     }
 
-    /**
-     * Read one property off a deal.
-     */
     protected function dealProperty(string $dealId, string $property): ?string
     {
         $client = $this->auth->client("fetch deal {$property}");

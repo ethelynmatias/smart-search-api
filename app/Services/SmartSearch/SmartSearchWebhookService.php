@@ -66,9 +66,42 @@ class SmartSearchWebhookService
         }
     }
 
-    /**
-     * Write the callback payload onto the contact the search was run for.
-     */
+    public function handleTripleCheckCallback(array $payload): void
+    {
+        $contactId = data_get($payload, 'data.attributes.client_reference')
+            ?? data_get($payload, 'data.attributes.clientReference')
+            ?? data_get($payload, 'data.meta.client_reference')
+            ?? data_get($payload, 'meta.client_reference')
+            ?? data_get($payload, 'contactId');
+        $status = data_get($payload, 'data.attributes.status')
+            ?? data_get($payload, 'data.attributes.outcome')
+            ?? data_get($payload, 'status')
+            ?? data_get($payload, 'outcome');
+
+        if (blank($contactId) || blank($status)) {
+            $this->logService->webhook('SmartSearch: TripleCheck callback missing contact or status', [
+                'contactId' => $contactId,
+                'status' => $status,
+                'response' => $payload,
+            ]);
+
+            return;
+        }
+
+        $response = $this->hubSpotService->updateContactTripleCheckStatus(
+            (string) $contactId,
+            (string) $status,
+        );
+
+        $this->logService->webhook('SmartSearch: TripleCheck contact status written', [
+            'contactId' => $contactId,
+            'status' => $status,
+            'written' => filled($response),
+            'response' => $payload,
+        ]);
+    }
+
+  
     protected function writeResponseToContact(WebhookDetail $detail, array $payload): void
     {
         if ($detail->type !== 'smartdoc' || blank($detail->hubspot_contact_id)) {

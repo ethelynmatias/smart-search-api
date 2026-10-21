@@ -292,7 +292,7 @@ class HubSpotWebhookService
         }
 
         try {
-            $tripleChecks = $this->runTripleChecks($contacts);
+            $tripleChecks = $this->runTripleChecks($contacts, $logGroupId);
 
             $this->writeTripleCheckStatusesToContacts($tripleChecks, $logGroupId);
             $this->notificationTripleCheckSubmission($tripleChecks, $contacts, $logGroupId);
@@ -716,6 +716,41 @@ class HubSpotWebhookService
         }
     }
 
+    protected function registerTripleCheckWebhook(array $result, ?string $groupId): void
+    {
+        $ssid = data_get($result, 'data.id')
+            ?? data_get($result, 'meta.smartdoc');
+
+        if (blank($ssid)) {
+            return;
+        }
+
+        try {
+            $response = $this->smartDocService->createWebhook(
+                (string) $ssid,
+                route('webhooks.smartsearch.triplecheck'),
+            );
+
+            $this->logService->forGroup($groupId)->webhook('SmartSearch: TripleCheck webhook registered', [
+                'ssid' => $ssid,
+                'response' => $response,
+            ]);
+        } catch (SmartSearchException $e) {
+            Log::warning('TripleCheck webhook registration failed.', [
+                'ssid' => $ssid,
+                'status' => $e->status,
+                'error' => $e->getMessage(),
+            ]);
+
+            $this->logService->forGroup($groupId)->webhook('SmartSearch: TripleCheck webhook registration failed', [
+                'ssid' => $ssid,
+                'status' => $e->status,
+                'error' => $e->getMessage(),
+                'errors' => $e->errors,
+            ]);
+        }
+    }
+
     protected function searchPropertiesOn(array $deal, string $trigger): array
     {
         $properties = $deal['properties'] ?? [];
@@ -1047,7 +1082,7 @@ class HubSpotWebhookService
      *
      * @return array<int, array> one entry per contact, in the order given
      */
-    protected function runTripleChecks(array $contacts): array
+    protected function runTripleChecks(array $contacts, ?string $groupId = null): array
     {
         $results = [];
 
@@ -1097,7 +1132,9 @@ class HubSpotWebhookService
             }
 
             try {
-                $results[] = [...$meta, 'result' => $this->tripleCheckService->create($data)];
+                $result = $this->tripleCheckService->create($data);
+                $this->registerTripleCheckWebhook($result, $groupId);
+                $results[] = [...$meta, 'result' => $result];
             } catch (SmartSearchException $e) {
                 Log::warning('TripleCheck creation failed for HubSpot subject.', [
                     ...$meta,
