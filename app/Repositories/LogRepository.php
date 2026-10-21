@@ -34,8 +34,12 @@ class LogRepository implements LogRepositoryInterface
      */
     public function paginate(?LogType $type = null, ?string $logGroupId = null, int $perPage = 20, ?string $search = null): LengthAwarePaginator
     {
+        $showPayload = filled($logGroupId) || filled($search);
+
         return Log::query()
-            ->select('logs.*')
+            ->select($showPayload
+                ? ['logs.*']
+                : ['logs.id', 'logs.log_group_id', 'logs.type', 'logs.message', 'logs.created_at'])
             ->when($type, fn ($query, $type) => $query->where('type', $type))
             ->when($logGroupId, fn ($query, $logGroupId) => $query->where('log_group_id', $logGroupId))
             // An ssid appears in the payload under several keys — ssid on our own
