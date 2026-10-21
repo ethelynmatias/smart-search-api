@@ -32,9 +32,11 @@ class LogRepository implements LogRepositoryInterface
      * Without a group filter, only the latest record of each group is shown,
      * with a `group_count` of how many records the group holds.
      */
-    public function paginate(?LogType $type = null, ?string $logGroupId = null, int $perPage = 20, ?string $search = null): LengthAwarePaginator
+    public function paginate(?LogType $type = null, ?string $logGroupId = null, int $perPage = 20, ?string $search = null, ?string $dateFrom = null, ?string $dateTo = null): LengthAwarePaginator
     {
         $showPayload = filled($logGroupId) || filled($search);
+        $dateFrom ??= today()->toDateString();
+        $dateTo ??= $dateFrom;
 
         return Log::query()
             ->select($showPayload
@@ -42,6 +44,10 @@ class LogRepository implements LogRepositoryInterface
                 : ['logs.id', 'logs.log_group_id', 'logs.type', 'logs.message', 'logs.created_at'])
             ->when($type, fn ($query, $type) => $query->where('type', $type))
             ->when($logGroupId, fn ($query, $logGroupId) => $query->where('log_group_id', $logGroupId))
+            ->whereBetween('logs.created_at', [
+                $dateFrom.' 00:00:00',
+                $dateTo.' 23:59:59.999999',
+            ])
             // An ssid appears in the payload under several keys — ssid on our own
             // writes, data.id in a SmartSearch response — so the search runs over
             // the whole payload rather than one path.

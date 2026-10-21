@@ -56,6 +56,17 @@ h1 {
     align-items: center;
     gap: 0.4rem;
     margin-left: auto;
+    flex-wrap: wrap;
+}
+
+.search .field {
+    flex-direction: row;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.search .field > span {
+    white-space: nowrap;
 }
 
 .search input[type="search"] {
@@ -477,6 +488,21 @@ pre.payload {
     border-radius: 0.4rem;
     padding: 0.35rem 0.6rem;
     max-width: 18rem;
+}
+
+.field input[type="date"] {
+    font: inherit;
+    font-size: 0.8rem;
+    color: #0f172a;
+    background: #ffffff;
+    border: 1px solid #cbd5e1;
+    border-radius: 0.4rem;
+    padding: 0.35rem 0.6rem;
+}
+
+.field input[type="date"]:focus {
+    outline: none;
+    border-color: #ff7a59;
 }
 
 .field select:focus {
