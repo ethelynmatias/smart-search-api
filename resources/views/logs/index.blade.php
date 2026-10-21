@@ -23,16 +23,26 @@
                 <h1>Logs</h1>
                 <nav class="filters">
                     <a href="{{ route('logs.storage', ['token' => $token]) }}">Storage</a>
-                    <a href="{{ route('logs.index', ['token' => $token]) }}" @class(['active' => ! request('type')])>All</a>
+                    <a href="{{ route('logs.index', ['token' => $token, 'date_from' => $dateFrom, 'date_to' => $dateTo]) }}" @class(['active' => ! request('type')])>All</a>
                     @foreach ($types as $type)
                         <a
-                            href="{{ route('logs.index', ['token' => $token, 'type' => $type->value]) }}"
+                            href="{{ route('logs.index', ['token' => $token, 'type' => $type->value, 'date_from' => $dateFrom, 'date_to' => $dateTo]) }}"
                             @class(['active' => request('type') === $type->value])
                         >{{ ucfirst($type->value) }}</a>
                     @endforeach
                 </nav>
 
                 <form class="search" method="GET" action="{{ route('logs.index', ['token' => $token]) }}">
+                    <label class="field">
+                        <span>Date from</span>
+                        <input type="date" name="date_from" value="{{ $dateFrom }}">
+                    </label>
+
+                    <label class="field">
+                        <span>Date to</span>
+                        <input type="date" name="date_to" value="{{ $dateTo }}">
+                    </label>
+
                     {{-- The type filter is kept while searching; a group is not,
                          since a search spans whichever groups hold the ssid. --}}
                     @if (request('type'))
@@ -49,7 +59,7 @@
                     <button type="submit">Search</button>
 
                     @if (filled($ssid))
-                        <a class="clear" href="{{ route('logs.index', array_filter(['token' => $token, 'type' => request('type')])) }}">&times; clear</a>
+                        <a class="clear" href="{{ route('logs.index', array_filter(['token' => $token, 'type' => request('type'), 'date_from' => $dateFrom, 'date_to' => $dateTo])) }}">&times; clear</a>
                     @endif
                 </form>
             </header>
@@ -64,7 +74,7 @@
             @if (request('group'))
                 <div class="group-filter">
                     Showing group <code>{{ request('group') }}</code>
-                    <a href="{{ route('logs.index', array_filter(['token' => $token, 'type' => request('type')])) }}">&times; clear</a>
+                    <a href="{{ route('logs.index', array_filter(['token' => $token, 'type' => request('type'), 'date_from' => $dateFrom, 'date_to' => $dateTo])) }}">&times; clear</a>
                 </div>
             @endif
 
@@ -96,7 +106,7 @@
                                     @if ($log->log_group_id)
                                         <a
                                             class="group-link"
-                                            href="{{ route('logs.index', array_filter(['token' => $token, 'type' => request('type'), 'group' => $log->log_group_id])) }}"
+                                            href="{{ route('logs.index', array_filter(['token' => $token, 'type' => request('type'), 'group' => $log->log_group_id, 'date_from' => $dateFrom, 'date_to' => $dateTo])) }}"
                                             title="{{ $log->log_group_id }}"
                                         >{{ substr($log->log_group_id, 0, 8) }}</a>
                                     @endif
@@ -153,7 +163,7 @@
                                         @if ($log->log_group_id)
                                             <a
                                                 class="group-link"
-                                                href="{{ route('logs.index', array_filter(['token' => $token, 'type' => request('type'), 'group' => $log->log_group_id])) }}"
+                                                href="{{ route('logs.index', array_filter(['token' => $token, 'type' => request('type'), 'group' => $log->log_group_id, 'date_from' => $dateFrom, 'date_to' => $dateTo])) }}"
                                                 title="{{ $log->log_group_id }}"
                                             >{{ substr($log->log_group_id, 0, 8) }}</a>
                                             @if (($log->group_count ?? 1) > 1)
