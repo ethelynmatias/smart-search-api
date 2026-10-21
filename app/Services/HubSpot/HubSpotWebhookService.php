@@ -52,6 +52,12 @@ class HubSpotWebhookService
         'smart_search_local_testing' => ['smartdoc_ssid', 'smartdoc_status', 'smartsearch_uk_individual_ssid'],
     ];
 
+    /**
+     * Subject ids notified during the current deal workflow, regardless of
+     * whether the notification came from SmartDoc or TripleCheck.
+     */
+    protected array $notifiedSubjectIds = [];
+
     public function __construct(
         protected LogService $logService,
         protected AmlService $amlService,
@@ -186,6 +192,8 @@ class HubSpotWebhookService
             return;
         }
 
+        $this->notifiedSubjectIds = [];
+
         $deal = $this->fetchDeal((string) $dealId);
 
         if (filled($searched = $this->searchPropertiesOn($deal, $property))) {
@@ -287,6 +295,7 @@ class HubSpotWebhookService
             $tripleChecks = $this->runTripleChecks($contacts);
 
             $this->writeTripleCheckStatusesToContacts($tripleChecks, $logGroupId);
+            $this->notificationTripleCheckSubmission($tripleChecks, $contacts, $logGroupId);
 
             if (filled($tripleChecks)) {
                 $this->logService->forGroup($logGroupId)->webhook("HubSpot: deal {$property} triple check", [
@@ -362,6 +371,7 @@ class HubSpotWebhookService
                         $notification['method'],
                         $notification['value'],
                     );
+                    $this->notifiedSubjectIds[] = $notification['subjectId'];
                 } catch (\Throwable $exception) {
                     Log::warning('SmartDoc submission notification failed.', [
                         'subjectId' => $notification['subjectId'],
@@ -1122,6 +1132,73 @@ class HubSpotWebhookService
                 'status' => $status,
                 'written' => filled($written),
             ]);
+        }
+    }
+
+    protected function notificationTripleCheckSubmission(array $tripleChecks, array $contacts, ?string $groupId): void
+    {
+        foreach ($tripleChecks as $entry) {
+            $subjectId = data_get($entry, 'result.meta.subject');
+            $contactId = $entry['contactId'] ?? null;
+
+            if (
+                blank($subjectId)
+                || blank($contactId)
+                || ! array_key_exists('result', $entry)
+                || in_array((string) $subjectId, $this->notifiedSubjectIds, true)
+            ) {
+                continue;
+            }
+
+            $contact = collect($contacts)->first(
+                fn (array $contact) => (string) ($contact['id'] ?? '') === (string) $contactId,
+            );
+            $properties = $contact['properties'] ?? [];
+            $phone = $this->firstFilled($properties['mobilephone'] ?? null, $properties['phone'] ?? null);
+            $email = $properties['email'] ?? null;
+            [$method, $value] = filled($phone)
+                ? ['sms', (string) $phone]
+                : ['email', (string) $email];
+
+            if (blank($value)) {
+                $this->logService->forGroup($groupId)->webhook('TripleCheck notification not sent: contact is missing contact details.', [
+                    'contactId' => $contactId,
+                    'searchSubjectId' => $subjectId,
+                ]);
+
+                continue;
+            }
+
+            try {
+                // Notify contact
+                $response = $this->smartDocService->sendNotification(
+                    (string) $subjectId,
+                    $method,
+                    $value,
+                );
+                $this->notifiedSubjectIds[] = (string) $subjectId;
+
+                $this->logService->forGroup($groupId)->webhook('TripleCheck notification sent.', [
+                    'contactId' => $contactId,
+                    'searchSubjectId' => $subjectId,
+                    'method' => $method,
+                    'response' => $response,
+                ]);
+            } catch (Throwable $exception) {
+                Log::warning('TripleCheck notification failed.', [
+                    'contactId' => $contactId,
+                    'searchSubjectId' => $subjectId,
+                    'method' => $method,
+                    'error' => $exception->getMessage(),
+                ]);
+
+                $this->logService->forGroup($groupId)->webhook('TripleCheck notification failed.', [
+                    'contactId' => $contactId,
+                    'searchSubjectId' => $subjectId,
+                    'method' => $method,
+                    'error' => $exception->getMessage(),
+                ]);
+            }
         }
     }
 
