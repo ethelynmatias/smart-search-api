@@ -1158,15 +1158,22 @@ class HubSpotWebhookService
                 continue;
             }
 
-            $status = array_key_exists('result', $entry) ? 'successful' : 'failed';
+            $response = $entry['result'] ?? Arr::only($entry, [
+                'skipped',
+                'missing',
+                'error',
+                'errors',
+                'status',
+            ]);
+
             $written = $this->hubSpotService->updateContactSmartSearchTripleCheck(
                 (string) $contactId,
-                $status,
+                $response,
             );
 
-            $this->logService->forGroup($groupId)->webhook('HubSpot: contact triple check status written', [
+            $this->logService->forGroup($groupId)->webhook('HubSpot: contact triple check response written', [
                 'contactId' => $contactId,
-                'status' => $status,
+                'response' => $response,
                 'written' => filled($written),
             ]);
         }
