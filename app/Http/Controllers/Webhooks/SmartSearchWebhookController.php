@@ -61,6 +61,7 @@ class SmartSearchWebhookController extends Controller
         return $this->handleContactNotification(
             $request,
             'smartdoc_notifications_resend',
+            'services.hubspot.notification_secret',
             fn (array $event) => $this->notificationService->handleContactSmartdocNotification($event),
         );
     }
@@ -70,6 +71,7 @@ class SmartSearchWebhookController extends Controller
         return $this->handleContactNotification(
             $request,
             'triple_check_notification_resend',
+            'services.hubspot.notification_triple_check_secret',
             fn (array $event) => $this->notificationService->handleContactTripleCheckNotification($event),
         );
     }
@@ -77,14 +79,12 @@ class SmartSearchWebhookController extends Controller
     protected function handleContactNotification(
         Request $request,
         string $propertyName,
+        string $secretConfig,
         callable $handler,
     ): JsonResponse {
         $events = $request->json()->all();
-        $hasNotificationEvent = collect($events)->contains(
-            fn ($event) => ($event['propertyName'] ?? null) === $propertyName,
-        );
 
-        if (! $this->hubSpotWebhookService->hasValidSignature($request, $hasNotificationEvent)) {
+        if (! $this->hubSpotWebhookService->hasValidSignature($request, $secretConfig)) {
             $this->logService->webhook('HubSpot webhook rejected: invalid signature', [
                 'ip' => $request->ip(),
                 'signature' => $request->header('X-HubSpot-Signature-v3'),

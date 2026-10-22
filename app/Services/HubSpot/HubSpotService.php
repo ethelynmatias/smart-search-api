@@ -31,11 +31,15 @@ class HubSpotService
     /**
      * Fetch a HubSpot contact, optionally using the notification app token.
      */
-    public function getContact(string|array $contactIds, bool $notificationToken = false): array|null
+    public function getContact(
+        string|array $contactIds,
+        bool $notificationToken = false,
+        ?string $notificationTokenConfig = null,
+    ): array|null
     {
         $singleContact = is_string($contactIds);
         $token = $notificationToken
-            ? (config('services.hubspot.notification_token') ?: config('services.hubspot.access_token'))
+            ? (config($notificationTokenConfig ?? 'services.hubspot.notification_token') ?: config('services.hubspot.access_token'))
             : null;
         $client = $this->auth->client('fetch contact details', $token);
 

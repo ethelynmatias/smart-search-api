@@ -1,8 +1,6 @@
 <?php
 
 use App\Http\Controllers\LogController;
-use App\Http\Controllers\SmartSearchController;
-use App\Http\Controllers\StorageLogController;
 use App\Http\Middleware\PreventIndexing;
 use Illuminate\Support\Facades\Route;
 
@@ -12,9 +10,5 @@ Route::get('/', function () {
 
 Route::middleware(PreventIndexing::class)->group(function () {
     Route::get('/logs/{token}', [LogController::class, 'index'])->name('logs.index');
-    Route::get('/logs/{token}/storage', [StorageLogController::class, 'index'])->name('logs.storage');
-    Route::get('/smartsearch/documents/{token}', [SmartSearchController::class, 'documents'])->name('smartsearch.documents');
-    Route::get('/smartsearch/document-categories/{token}', [SmartSearchController::class, 'documentCategories'])->name('smartsearch.document-categories');
-    Route::get('/smartsearch/document-types/{token}', [SmartSearchController::class, 'documentTypes'])->name('smartsearch.document-types');
-    Route::get('/smartsearch/document/{token}', [SmartSearchController::class, 'document'])->name('smartsearch.document');
+    Route::get('/logs/{token}/storage', [LogController::class, 'storage'])->name('logs.storage');
 });

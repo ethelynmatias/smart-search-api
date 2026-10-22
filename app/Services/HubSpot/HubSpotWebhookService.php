@@ -74,11 +74,11 @@ class HubSpotWebhookService
      *
      * @see https://developers.hubspot.com/docs/api/webhooks/validating-requests
      */
-    public function hasValidSignature(Request $request, bool $notification = false): bool
+    public function hasValidSignature(Request $request, bool|string $notification = false): bool
     {
-        $secretConfig = $notification
-            ? 'services.hubspot.notification_secret'
-            : 'services.hubspot.client_secret';
+        $secretConfig = is_string($notification)
+            ? $notification
+            : ($notification ? 'services.hubspot.notification_secret' : 'services.hubspot.client_secret');
         $secret = config($secretConfig);
 
         if (blank($secret)) {

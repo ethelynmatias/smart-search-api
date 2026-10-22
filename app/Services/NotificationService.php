@@ -26,7 +26,10 @@ class NotificationService
             return;
         }
 
-        $contact = $this->hubSpotService->getContact((string) $contactId, notificationToken: true);
+        $contact = $this->hubSpotService->getContact(
+            (string) $contactId,
+            notificationToken: true,
+        );
 
         if (blank($contact)) {
             return;
@@ -87,6 +90,26 @@ class NotificationService
 
     public function handleContactTripleCheckNotification(array $payload): void
     {
-        
+        $contactId = $payload['objectId'] ?? null;
+
+        if (blank($contactId)) {
+            $this->logService->webhook('HubSpot contact TripleCheck notification event has no objectId.', [
+                'payload' => $payload,
+            ]);
+
+            return;
+        }
+
+        $contact = $this->hubSpotService->getContact(
+            (string) $contactId,
+            notificationToken: true,
+            notificationTokenConfig: 'services.hubspot.notification_triple_check_token',
+        );
+
+        if (blank($contact)) {
+            return;
+        }
+
+        // TripleCheck notification handling will be implemented here.
     }
 }

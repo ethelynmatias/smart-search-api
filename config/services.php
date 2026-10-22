@@ -33,6 +33,8 @@ return [
         'access_token' => env('HUBSPOT_ACCESS_TOKEN'),
         'notification_secret' => env('HUBSPOT_NOTIFICATION_SECRET'),
         'notification_token' => env('HUBSPOT_NOTIFICATION_TOKEN'),
+        'notification_triple_check_secret' => env('HUBSPOT_NOTIFICATION_TRIPLE_CHECK_SECRET'),
+        'notification_triple_check_token' => env('HUBSPOT_NOTIFICATION_TRIPLE_CHECK_TOKEN'),
     ],
 
     'postmark' => [
