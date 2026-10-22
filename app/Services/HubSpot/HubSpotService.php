@@ -31,11 +31,15 @@ class HubSpotService
     /**
      * Fetch a HubSpot contact, optionally using the notification app token.
      */
-    public function getContact(string|array $contactIds, bool $notificationToken = false): array|null
+    public function getContact(
+        string|array $contactIds,
+        bool $notificationToken = false,
+        ?string $notificationTokenConfig = null,
+    ): array|null
     {
         $singleContact = is_string($contactIds);
         $token = $notificationToken
-            ? (config('services.hubspot.notification_token') ?: config('services.hubspot.access_token'))
+            ? (config($notificationTokenConfig ?? 'services.hubspot.notification_token') ?: config('services.hubspot.access_token'))
             : null;
         $client = $this->auth->client('fetch contact details', $token);
 
@@ -198,20 +202,13 @@ class HubSpotService
         ]);
     }
 
-    public function updateContactSmartSearchTripleCheck(string $contactId, string $value): array
+    public function updateContactSmartSearchTripleCheck(string $contactId, array|string|null $response): array
     {
         return $this->updateContactProperties($contactId, [
-            'smart_search_triple_check' => $value,
+            'smart_search_triple_check' => is_array($response) ? json_encode($response) : (string) $response,
         ]);
     }
 
-    /**
-     * Append a response to a contact property, one per line, so an earlier
-     * response is kept rather than written over.
-     *
-     * When the property would outgrow what HubSpot can hold, the oldest
-     * responses are dropped first.
-     */
     protected function appendContactResponse(string $contactId, string $property, array|string|null $response): array
     {
         $entry = is_array($response) ? json_encode($response) : (string) $response;

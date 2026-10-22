@@ -22,12 +22,10 @@ class TripleCheckService
                         'client_reference' => $data['client_reference'] ?? null,
                         'date_of_birth' => $data['dob'] ?? null,
                         'sex' => $data['sex'] ?? null,
-                        'document_types' => $data['document_types'] ?? [
-                            'passport',
-                            'driving-licence',
-                            'id-card',
+                        'document_types' => [
+                            'passport','driving-licence','id-card'
                         ],
-                        'scan_type' => $data['scan_type'] ?? 'advanced',
+                        'scan_type' =>'advanced',
                         'name' => [
                             'title' => $data['title'] ?? null,
                             'first' => $data['first_name'] ?? null,

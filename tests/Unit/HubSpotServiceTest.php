@@ -177,23 +177,45 @@ class HubSpotServiceTest extends TestCase
         $this->assertSame($this->contactId, $response['id']);
     }
 
-    public function test_smart_search_triple_check_is_written_to_a_contact(): void
+    public function test_smart_search_triple_check_response_is_written_to_a_contact(): void
     {
+        $tripleCheckResponse = [
+            'data' => null,
+            'meta' => [
+                'subject' => '399f4357-d796-483a-8543-e38e35684528',
+                'version' => 'v3.9.91',
+                'duration' => 6.996,
+                'smartdoc' => '100395145',
+                'reference' => '7dd3af54-fdef-421b-8bad-637d384cea87',
+                'timestamp' => '2026-10-21T14:13:24+00:00',
+            ],
+        ];
+
         Http::fake([
             "{$this->baseUrl}/crm/v3/objects/contacts/{$this->contactId}" => Http::response([
                 'id' => $this->contactId,
-                'properties' => ['smart_search_triple_check' => 'complete'],
+                'properties' => ['smart_search_triple_check' => json_encode($tripleCheckResponse)],
             ]),
         ]);
 
-        $response = app(HubSpotService::class)->updateContactSmartSearchTripleCheck(
+        $hubSpotResponse = app(HubSpotService::class)->updateContactSmartSearchTripleCheck(
             $this->contactId,
-            'complete',
+            $tripleCheckResponse,
         );
 
         $this->assertSame([
-            'smart_search_triple_check' => 'complete',
+            'smart_search_triple_check' => json_encode([
+                'data' => null,
+                'meta' => [
+                    'subject' => '399f4357-d796-483a-8543-e38e35684528',
+                    'version' => 'v3.9.91',
+                    'duration' => 6.996,
+                    'smartdoc' => '100395145',
+                    'reference' => '7dd3af54-fdef-421b-8bad-637d384cea87',
+                    'timestamp' => '2026-10-21T14:13:24+00:00',
+                ],
+            ]),
         ], $this->patchedProperties());
-        $this->assertSame($this->contactId, $response['id']);
+        $this->assertSame($this->contactId, $hubSpotResponse['id']);
     }
 }

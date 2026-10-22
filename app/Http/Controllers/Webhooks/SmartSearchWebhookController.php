@@ -3,8 +3,11 @@
 namespace App\Http\Controllers\Webhooks;
 
 use App\Http\Controllers\Controller;
+use App\Services\HubSpot\HubSpotWebhookService;
 use App\Services\LogService;
+use App\Services\NotificationService;
 use App\Services\SmartSearch\SmartSearchWebhookService;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 
@@ -12,6 +15,8 @@ class SmartSearchWebhookController extends Controller
 {
     public function __construct(
         protected SmartSearchWebhookService $smartSearchWebhookService,
+        protected NotificationService $notificationService,
+        protected HubSpotWebhookService $hubSpotWebhookService,
         protected LogService $logService,
     ) {}
 
@@ -49,5 +54,54 @@ class SmartSearchWebhookController extends Controller
         $this->smartSearchWebhookService->handleTripleCheckCallback($payload);
 
         return response()->noContent();
+    }
+
+    public function handleContactSmartdocNotification(Request $request): JsonResponse
+    {
+        return $this->handleContactNotification(
+            $request,
+            'smartdoc_notifications_resend',
+            'services.hubspot.notification_secret',
+            fn (array $event) => $this->notificationService->handleContactSmartdocNotification($event),
+        );
+    }
+
+    public function handleContactTripleCheckNotification(Request $request): JsonResponse
+    {
+        return $this->handleContactNotification(
+            $request,
+            'triple_check_notification_resend',
+            'services.hubspot.notification_triple_check_secret',
+            fn (array $event) => $this->notificationService->handleContactTripleCheckNotification($event),
+        );
+    }
+
+    protected function handleContactNotification(
+        Request $request,
+        string $propertyName,
+        string $secretConfig,
+        callable $handler,
+    ): JsonResponse {
+        $events = $request->json()->all();
+
+        if (! $this->hubSpotWebhookService->hasValidSignature($request, $secretConfig)) {
+            $this->logService->webhook('HubSpot webhook rejected: invalid signature', [
+                'ip' => $request->ip(),
+                'signature' => $request->header('X-HubSpot-Signature-v3'),
+                'timestamp' => $request->header('X-HubSpot-Request-Timestamp'),
+                'body' => $events,
+            ]);
+
+            return response()->json(['message' => 'Invalid signature.'], 401);
+        }
+
+        foreach ($events as $event) {
+            if (($event['propertyName'] ?? null) === $propertyName
+                && in_array($event['propertyValue'] ?? null, ['true', true], true)) {
+                $handler($event);
+            }
+        }
+
+        return response()->json(['message' => 'ok']);
     }
 }

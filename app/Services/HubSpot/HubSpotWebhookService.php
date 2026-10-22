@@ -74,11 +74,11 @@ class HubSpotWebhookService
      *
      * @see https://developers.hubspot.com/docs/api/webhooks/validating-requests
      */
-    public function hasValidSignature(Request $request, bool $notification = false): bool
+    public function hasValidSignature(Request $request, bool|string $notification = false): bool
     {
-        $secretConfig = $notification
-            ? 'services.hubspot.notification_secret'
-            : 'services.hubspot.client_secret';
+        $secretConfig = is_string($notification)
+            ? $notification
+            : ($notification ? 'services.hubspot.notification_secret' : 'services.hubspot.client_secret');
         $secret = config($secretConfig);
 
         if (blank($secret)) {
@@ -1158,15 +1158,32 @@ class HubSpotWebhookService
                 continue;
             }
 
-            $status = array_key_exists('result', $entry) ? 'successful' : 'failed';
+            $response = $entry['result'] ?? Arr::only($entry, [
+                'skipped',
+                'missing',
+                'error',
+                'errors',
+                'status',
+            ]);
+
             $written = $this->hubSpotService->updateContactSmartSearchTripleCheck(
                 (string) $contactId,
-                $status,
+                $response,
             );
 
-            $this->logService->forGroup($groupId)->webhook('HubSpot: contact triple check status written', [
+            $subjectId = data_get($entry, 'result.meta.subject');
+            $ssidWritten = filled($subjectId)
+                ? $this->hubSpotService->updateContactTripleCheckSsid(
+                    (string) $contactId,
+                    (string) $subjectId,
+                )
+                : [];
+
+            $this->logService->forGroup($groupId)->webhook('HubSpot: contact triple check response written', [
                 'contactId' => $contactId,
-                'status' => $status,
+                'subjectId' => $subjectId,
+                'ssidWritten' => filled($ssidWritten),
+                'response' => $response,
                 'written' => filled($written),
             ]);
         }
