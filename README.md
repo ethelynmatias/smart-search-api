@@ -98,11 +98,10 @@ app/
 │
 ├── Http/
 │   ├── Controllers/
-│   │   ├── LogController.php         # /logs/{token} viewer
+│   │   ├── LogController.php         # /logs/{token} and storage log viewers
 │   │   └── Webhooks/
 │   │       ├── HubSpotWebhookController.php      # Deal property change events
-│   │       └── SmartSearchWebhookController.php  # Search result callbacks (status,
-│   │                                             # subject notification, request date)
+│   │       └── SmartSearchWebhookController.php  # Search callbacks and notifications
 │   └── Requests/
 │       ├── AMLRequest.php            # AML validation
 │       └── SmartDocRequest.php       # SmartDoc validation (+ notify_method sms/email)
@@ -122,16 +121,20 @@ app/
 └── Services/
     ├── HubSpot/
     │   ├── HubSpotAuthService.php    # Access token + authenticated API client
-    │   ├── HubSpotService.php        # Deal property writes (ssids, status, request dates)
-    │   └── HubSpotWebhookService.php # Signature check, event dispatch, searches, deal write-back
+    │   ├── HubSpotService.php        # HubSpot reads and property writes
+    │   └── HubSpotWebhookService.php # Signature check, event dispatch, searches, write-back
     │
     ├── LogService.php                # Creates logs with a shared per-request log_group_id
+    ├── NotificationService.php       # SmartDoc and TripleCheck contact notifications
     │
     └── SmartSearch/
         ├── AmlService.php            # AML searches
         ├── AuthenticationService.php # Cached app token
+        ├── FraudCheckService.php     # Fraud checks
         ├── SmartDocService.php       # SmartDoc searches + result webhook registration
         ├── SmartSearchClient.php     # Authenticated JSON:API client
+        ├── SmartSearchWebhookService.php # Search result callback handling
+        ├── TripleCheckService.php    # TripleCheck searches
         └── Exceptions/
             └── SmartSearchException.php
 ```
@@ -143,8 +146,12 @@ Supporting files: `routes/api.php` (HubSpot + SmartSearch endpoints), `routes/we
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | POST | `/api/hubspot/event` | HubSpot webhook receiver (signature-verified) |
+| POST | `/api/hubspot/contact-smartdoc-notification` | HubSpot SmartDoc notification resend webhook |
+| POST | `/api/hubspot/contact-triple-check-notification` | HubSpot TripleCheck notification resend webhook |
 | POST | `/api/smartsearch/search` | SmartSearch search result callback |
+| POST | `/api/smartsearch/triplecheck` | SmartSearch TripleCheck callback |
 | GET | `/logs/{token}` | Log viewer (token from `LOGS_ACCESS_TOKEN`) |
+| GET | `/logs/{token}/storage` | Raw storage log viewer (token from `LOGS_ACCESS_TOKEN`) |
 
 ## Search Flow
 
@@ -196,6 +203,22 @@ Set the client secret from your HubSpot app (Auth → Client secret) in `.env`, 
 ```dotenv
 HUBSPOT_CLIENT_SECRET=your-secret-here
 ```
+
+The contact notification webhooks use separate credentials. SmartDoc notifications use
+`HUBSPOT_NOTIFICATION_SECRET` and `HUBSPOT_NOTIFICATION_TOKEN`; TripleCheck notifications
+use `HUBSPOT_NOTIFICATION_TRIPLE_CHECK_SECRET` and
+`HUBSPOT_NOTIFICATION_TRIPLE_CHECK_TOKEN`:
+
+```dotenv
+HUBSPOT_NOTIFICATION_SECRET=your-smartdoc-notification-secret
+HUBSPOT_NOTIFICATION_TOKEN=your-smartdoc-notification-token
+HUBSPOT_NOTIFICATION_TRIPLE_CHECK_SECRET=your-triple-check-notification-secret
+HUBSPOT_NOTIFICATION_TRIPLE_CHECK_TOKEN=your-triple-check-notification-token
+```
+
+Both notification endpoints accept HubSpot property-change events and require the
+`X-HubSpot-Signature-v3` and `X-HubSpot-Request-Timestamp` headers. The relevant
+properties are `smartdoc_notifications_resend` and `triple_check_notification_resend`.
 
 ```bash
 docker compose restart app

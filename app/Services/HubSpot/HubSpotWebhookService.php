@@ -1171,8 +1171,18 @@ class HubSpotWebhookService
                 $response,
             );
 
+            $subjectId = data_get($entry, 'result.meta.subject');
+            $ssidWritten = filled($subjectId)
+                ? $this->hubSpotService->updateContactTripleCheckSsid(
+                    (string) $contactId,
+                    (string) $subjectId,
+                )
+                : [];
+
             $this->logService->forGroup($groupId)->webhook('HubSpot: contact triple check response written', [
                 'contactId' => $contactId,
+                'subjectId' => $subjectId,
+                'ssidWritten' => filled($ssidWritten),
                 'response' => $response,
                 'written' => filled($written),
             ]);
