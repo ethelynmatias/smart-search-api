@@ -56,14 +56,32 @@ class SmartSearchWebhookController extends Controller
         return response()->noContent();
     }
 
-    /**
-     * Handle HubSpot contact SmartDoc notification resend events.
-     */
     public function handleContactSmartdocNotification(Request $request): JsonResponse
     {
+        return $this->handleContactNotification(
+            $request,
+            'smartdoc_notifications_resend',
+            fn (array $event) => $this->notificationService->handleContactSmartdocNotification($event),
+        );
+    }
+
+    public function handleContactTripleCheckNotification(Request $request): JsonResponse
+    {
+        return $this->handleContactNotification(
+            $request,
+            'triple_check_notification_resend',
+            fn (array $event) => $this->notificationService->handleContactTripleCheckNotification($event),
+        );
+    }
+
+    protected function handleContactNotification(
+        Request $request,
+        string $propertyName,
+        callable $handler,
+    ): JsonResponse {
         $events = $request->json()->all();
         $hasNotificationEvent = collect($events)->contains(
-            fn ($event) => ($event['propertyName'] ?? null) === 'smartdoc_notifications_resend',
+            fn ($event) => ($event['propertyName'] ?? null) === $propertyName,
         );
 
         if (! $this->hubSpotWebhookService->hasValidSignature($request, $hasNotificationEvent)) {
@@ -71,16 +89,16 @@ class SmartSearchWebhookController extends Controller
                 'ip' => $request->ip(),
                 'signature' => $request->header('X-HubSpot-Signature-v3'),
                 'timestamp' => $request->header('X-HubSpot-Request-Timestamp'),
-                'body' => $request->json()->all(),
+                'body' => $events,
             ]);
 
             return response()->json(['message' => 'Invalid signature.'], 401);
         }
 
         foreach ($events as $event) {
-            if (($event['propertyName'] ?? null) === 'smartdoc_notifications_resend'
+            if (($event['propertyName'] ?? null) === $propertyName
                 && in_array($event['propertyValue'] ?? null, ['true', true], true)) {
-                $this->notificationService->handleContactSmartdocNotification($event);
+                $handler($event);
             }
         }
 

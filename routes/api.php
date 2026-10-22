@@ -10,6 +10,9 @@ Route::post('/hubspot/event', HubSpotWebhookController::class)
 Route::post('/hubspot/contact-smartdoc-notification', [SmartSearchWebhookController::class, 'handleContactSmartdocNotification'])
     ->name('webhooks.hubspot.contact-smartdoc-notification');
 
+Route::post('/hubspot/contact-triple-check-notification', [SmartSearchWebhookController::class, 'handleContactTripleCheckNotification'])
+    ->name('webhooks.hubspot.contact-triple-check-notification');
+
 Route::post('/smartsearch/search', [SmartSearchWebhookController::class, 'handle'])
     ->name('webhooks.smartsearch');
 
