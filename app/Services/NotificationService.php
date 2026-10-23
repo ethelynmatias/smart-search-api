@@ -30,7 +30,7 @@ class NotificationService
         $this->handleContactNotification(
             $payload,
             'TripleCheck',
-            'triple_check_ssid',
+            'smartdoc_subject_id',
             'services.hubspot.notification_triple_check_token',
             fn (string $contactId) => $this->hubSpotService->updateContactTripleCheckLinkExpiryDate($contactId),
         );
