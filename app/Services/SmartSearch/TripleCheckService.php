@@ -25,7 +25,7 @@ class TripleCheckService
                         'document_types' => [
                             'passport','driving-licence','id-card'
                         ],
-                        'scan_type' =>'advanced',
+                        'scan_type' =>'advanced-facial-recognition',
                         'name' => [
                             'title' => $data['title'] ?? null,
                             'first' => $data['first_name'] ?? null,
