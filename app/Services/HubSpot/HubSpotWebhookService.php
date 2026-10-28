@@ -230,6 +230,8 @@ class HubSpotWebhookService
 
         // Only the directors and PSCs are put through AML; everyone else on the
         // company is verified with SmartDoc alone.
+
+        /*
         $amlContacts = $this->amlContacts($contacts);
 
         $aml = [];
@@ -290,9 +292,16 @@ class HubSpotWebhookService
         } catch (Throwable $exception) {
             $this->logWorkflowFailure($logGroupId, "HubSpot: deal {$property} fraud check failed", $dealId, $exception);
         }
+        */
+
+        $amlContacts = $this->amlContacts($contacts);
 
         try {
-            $tripleChecks = $this->runTripleChecks($contacts, $logGroupId);
+
+            // Run if contact is PSC or director
+            $tripleChecks = in_array($property, ['smart_search', 'smart_search_local_testing'], true) && filled($amlContacts)
+                ? $this->runTripleChecks($amlContacts, $logGroupId)
+                : [];
 
             $this->writeTripleCheckStatusesToContacts($tripleChecks, $logGroupId);
             $this->notificationTripleCheckSubmission($tripleChecks, $contacts, $logGroupId);
