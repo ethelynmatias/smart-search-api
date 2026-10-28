@@ -1142,8 +1142,11 @@ class HubSpotWebhookService
 
             try {
                 $result = $this->tripleCheckService->create($data);
+
                 $this->registerTripleCheckWebhook($result, $groupId);
+
                 $results[] = [...$meta, 'result' => $result];
+
             } catch (SmartSearchException $e) {
                 Log::warning('TripleCheck creation failed for HubSpot subject.', [
                     ...$meta,
@@ -1188,10 +1191,27 @@ class HubSpotWebhookService
                 )
                 : [];
 
+            // Smartdoc ssid for contact
+            $smartDocSsid = data_get($entry, 'result.meta.smartdoc');
+            $smartDocWritten = filled($smartDocSsid)
+                ? $this->hubSpotService->updateContactSmartDocSsid(
+                    (string) $contactId,
+                    (string) $smartDocSsid,
+                    filled($subjectId) ? (string) $subjectId : null,
+                )
+                : [];
+
+            // Uk Indiviudal
+
+
+            // Fraud Check
+
             $this->logService->forGroup($groupId)->webhook('HubSpot: contact triple check response written', [
                 'contactId' => $contactId,
                 'subjectId' => $subjectId,
+                'smartDocSsid' => $smartDocSsid,
                 'ssidWritten' => filled($ssidWritten),
+                'smartDocWritten' => filled($smartDocWritten),
                 'response' => $response,
                 'written' => filled($written),
             ]);
