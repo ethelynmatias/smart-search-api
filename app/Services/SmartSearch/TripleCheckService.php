@@ -38,7 +38,7 @@ class TripleCheckService
                         ],
                         'addresses' => [[
                             'flat' => $data['flat'] ?? null,
-                            'building' => $data['address1'] ?? null,
+                            'building' => $data['building'] ?? null,
                             'street_1' => $data['street_1'] ?? null,
                             'street_2' => $data['street_2'] ?? null,
                             'town' => $data['city'] ?? null,

@@ -1158,6 +1158,7 @@ class HubSpotWebhookService
                 'address1' => $this->streetAddress($properties),
                 'street_1' => $this->streetAddress($properties),
                 'street_2' => $this->secondStreetLine($properties),
+                'building' => $properties['building_number_'] ?? null,
                 'city' => $properties['city'] ?? null,
                 'region' => $properties['state'] ?? null,
                 'postcode' => $properties['zip'] ?? null,
