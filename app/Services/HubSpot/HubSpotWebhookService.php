@@ -303,7 +303,10 @@ class HubSpotWebhookService
                 ? $this->runTripleChecks($amlContacts, $logGroupId)
                 : [];
 
+            // Aml, smartdoc and fraud check
             $this->writeTripleCheckStatusesToContacts($tripleChecks, $logGroupId);
+
+            // Write the triple check statuses to the deal in HubSpot.
             $this->notificationTripleCheckSubmission($tripleChecks, $contacts, $logGroupId);
 
             if (filled($tripleChecks)) {
@@ -1201,17 +1204,41 @@ class HubSpotWebhookService
                 )
                 : [];
 
-            // Uk Indiviudal
+            // Retrieve the TripleCheck bundle to obtain the related search IDs.
+            $tripleCheckId = data_get($entry, 'result.meta.reference');
+            $bundle = filled($tripleCheckId)
+                ? $this->tripleCheckService->get((string) $tripleCheckId)
+                : [];
 
+            // Retrieve the related UK individual AML search after writing SmartDoc.
 
-            // Fraud Check
+            // Temporarily disabled: retrieve the related UK Individual search.
+            $ukIndividualSsid = null;
+            $ukIndividual = [];
+            // $ukIndividualSsid = data_get($entry, 'result.meta.subject');
+            // $ukIndividual = filled($ukIndividualSsid)
+            //     ? $this->amlService->get((string) $ukIndividualSsid)
+            //     : [];
+
+            // Temporarily disabled: retrieve the related FraudCheck search.
+            $fraudCheckId = null;
+            $fraudCheck = [];
+            // $fraudCheckId = data_get($entry, 'result.meta.subject');
+            // $fraudCheck = filled($fraudCheckId)
+            //     ? $this->fraudCheckService->get((string) $fraudCheckId)
+            //     : [];
 
             $this->logService->forGroup($groupId)->webhook('HubSpot: contact triple check response written', [
                 'contactId' => $contactId,
                 'subjectId' => $subjectId,
                 'smartDocSsid' => $smartDocSsid,
+                'ukIndividualSsid' => $ukIndividualSsid,
+                'fraudCheckId' => $fraudCheckId,
                 'ssidWritten' => filled($ssidWritten),
                 'smartDocWritten' => filled($smartDocWritten),
+                'ukIndividualRetrieved' => filled($ukIndividual),
+                'fraudCheckRetrieved' => filled($fraudCheck),
+                'tripleCheckBundle' => $bundle,
                 'response' => $response,
                 'written' => filled($written),
             ]);

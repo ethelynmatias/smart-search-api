@@ -100,4 +100,31 @@ class TripleCheckServiceTest extends TestCase
                 ];
         });
     }
+
+    public function test_get_retrieves_the_search_bundle(): void
+    {
+        $searchId = '3544ee19-f755-4822-af41-ead0fe9e8cdd';
+
+        Http::fake([
+            "{$this->baseUrl}/v3/auth/token" => Http::response([
+                'meta' => ['token' => 'fake-token'],
+            ], 201),
+            "{$this->baseUrl}/v3/triplecheck/searches/{$searchId}" => Http::response([
+                'data' => [
+                    'ukindividual' => 'uk-individual-123',
+                    'fraudcheck' => 'fraud-check-123',
+                ],
+            ]),
+        ]);
+
+        $result = app(TripleCheckService::class)->get($searchId);
+
+        $this->assertSame('uk-individual-123', $result['data']['ukindividual']);
+
+        Http::assertSent(function (Request $request) use ($searchId): bool {
+            return $request->method() === 'GET'
+                && $request->url() === "{$this->baseUrl}/v3/triplecheck/searches/{$searchId}"
+                && $request->header('Authorization')[0] === 'Bearer fake-token';
+        });
+    }
 }
