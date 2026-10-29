@@ -319,6 +319,55 @@ class HubSpotWebhookService
         } catch (Throwable $exception) {
             $this->logWorkflowFailure($logGroupId, "HubSpot: deal {$property} triple check failed", $dealId, $exception);
         }
+
+        // Contacts that are not directors or PSCs run through SmartDoc and
+        // FraudCheck instead of the TripleCheck workflow.
+        $nonAmlContacts = collect($contacts)
+            ->reject(fn (array $contact) => $this->hasAmlLabel($contact['labels'] ?? []))
+            ->values()
+            ->all();
+
+        $smartDoc = [];
+
+        try {
+            $smartDoc = in_array($property, ['smart_search', 'smart_search_local_testing'], true)
+                && filled($nonAmlContacts)
+                ? $this->runSmartDocSearches($nonAmlContacts)
+                : [];
+
+            if (filled($smartDoc)) {
+                $this->logService->forGroup($logGroupId)->webhook("HubSpot: deal {$property} smartdoc", [
+                    'dealId' => $dealId,
+                    'propertyName' => $property,
+                    'smartdoc' => $smartDoc,
+                ]);
+
+                $this->recordSmartDocDetails((string) $dealId, $smartDoc, $logGroupId, $nonAmlContacts);
+            }
+        } catch (Throwable $exception) {
+            $this->logWorkflowFailure($logGroupId, "HubSpot: deal {$property} smartdoc failed", $dealId, $exception);
+        }
+
+        $fraudChecks = [];
+
+        try {
+            $fraudChecks = in_array($property, ['smart_search', 'smart_search_local_testing'], true)
+                && filled($nonAmlContacts)
+                ? $this->runFraudChecks($nonAmlContacts)
+                : [];
+
+            if (filled($fraudChecks)) {
+                $this->logService->forGroup($logGroupId)->webhook("HubSpot: deal {$property} fraud check", [
+                    'dealId' => $dealId,
+                    'propertyName' => $property,
+                    'fraudChecks' => $fraudChecks,
+                ]);
+
+                $this->recordFraudCheckDetails((string) $dealId, $fraudChecks, $logGroupId);
+            }
+        } catch (Throwable $exception) {
+            $this->logWorkflowFailure($logGroupId, "HubSpot: deal {$property} fraud check failed", $dealId, $exception);
+        }
     }
 
     /**
