@@ -45,4 +45,11 @@ class AmlService
             ]
         )->json();
     }
+
+    public function get(string $searchId): array
+    {
+        return $this->client->get(
+            "/v3/ukindividual/searches/{$searchId}"
+        )->json();
+    }
 }

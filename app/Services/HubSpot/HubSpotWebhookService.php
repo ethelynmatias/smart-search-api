@@ -230,6 +230,8 @@ class HubSpotWebhookService
 
         // Only the directors and PSCs are put through AML; everyone else on the
         // company is verified with SmartDoc alone.
+
+        /*
         $amlContacts = $this->amlContacts($contacts);
 
         $aml = [];
@@ -290,11 +292,26 @@ class HubSpotWebhookService
         } catch (Throwable $exception) {
             $this->logWorkflowFailure($logGroupId, "HubSpot: deal {$property} fraud check failed", $dealId, $exception);
         }
+        */
+
+        $amlContacts = $this->amlContacts($contacts);
 
         try {
-            $tripleChecks = $this->runTripleChecks($contacts, $logGroupId);
 
+            // Run if contact is PSC or director
+            $tripleChecks = in_array($property, ['smart_search', 'smart_search_local_testing'], true) && filled($amlContacts)
+                ? $this->runTripleChecks($amlContacts, $logGroupId)
+                : [];
+
+            // Aml, smartdoc and fraud check
             $this->writeTripleCheckStatusesToContacts($tripleChecks, $logGroupId);
+
+            $this->writeTripleCheckSsidsToDeal((string) $dealId, $tripleChecks, $logGroupId);
+            $tripleCheckRequestDate = filled($tripleChecks)
+                ? $this->hubSpotService->updateTripleCheckRequestDate((string) $dealId)
+                : [];
+
+            // Write the triple check statuses to the deal in HubSpot.
             $this->notificationTripleCheckSubmission($tripleChecks, $contacts, $logGroupId);
 
             if (filled($tripleChecks)) {
@@ -302,10 +319,60 @@ class HubSpotWebhookService
                     'dealId' => $dealId,
                     'propertyName' => $property,
                     'tripleChecks' => $tripleChecks,
+                    'tripleCheckRequestDateWritten' => filled($tripleCheckRequestDate),
                 ]);
             }
         } catch (Throwable $exception) {
             $this->logWorkflowFailure($logGroupId, "HubSpot: deal {$property} triple check failed", $dealId, $exception);
+        }
+
+        // Contacts that are not directors or PSCs run through SmartDoc and
+        // FraudCheck instead of the TripleCheck workflow.
+        $nonAmlContacts = collect($contacts)
+            ->reject(fn (array $contact) => $this->hasAmlLabel($contact['labels'] ?? []))
+            ->values()
+            ->all();
+
+        $smartDoc = [];
+
+        try {
+            $smartDoc = in_array($property, ['smart_search', 'smart_search_local_testing'], true)
+                && filled($nonAmlContacts)
+                ? $this->runSmartDocSearches($nonAmlContacts)
+                : [];
+
+            if (filled($smartDoc)) {
+                $this->logService->forGroup($logGroupId)->webhook("HubSpot: deal {$property} smartdoc", [
+                    'dealId' => $dealId,
+                    'propertyName' => $property,
+                    'smartdoc' => $smartDoc,
+                ]);
+
+                $this->recordSmartDocDetails((string) $dealId, $smartDoc, $logGroupId, $nonAmlContacts);
+            }
+        } catch (Throwable $exception) {
+            $this->logWorkflowFailure($logGroupId, "HubSpot: deal {$property} smartdoc failed", $dealId, $exception);
+        }
+
+        $fraudChecks = [];
+
+        try {
+            $fraudChecks = in_array($property, ['smart_search', 'smart_search_local_testing'], true)
+                && filled($nonAmlContacts)
+                ? $this->runFraudChecks($nonAmlContacts)
+                : [];
+
+            if (filled($fraudChecks)) {
+                $this->logService->forGroup($logGroupId)->webhook("HubSpot: deal {$property} fraud check", [
+                    'dealId' => $dealId,
+                    'propertyName' => $property,
+                    'fraudChecks' => $fraudChecks,
+                ]);
+
+                $this->recordFraudCheckDetails((string) $dealId, $fraudChecks, $logGroupId);
+            }
+        } catch (Throwable $exception) {
+            $this->logWorkflowFailure($logGroupId, "HubSpot: deal {$property} fraud check failed", $dealId, $exception);
         }
     }
 
@@ -686,6 +753,29 @@ class HubSpotWebhookService
         $this->logService->forGroup($groupId)->webhook('HubSpot: deal smartdoc ssid written', [
             'dealId' => $dealId,
             'smartdocSsid' => $value,
+            'written' => filled($response),
+        ]);
+    }
+
+    protected function writeTripleCheckSsidsToDeal(string $dealId, array $tripleChecks, ?string $groupId): void
+    {
+        $ssids = collect($tripleChecks)
+            ->map(fn (array $entry) => data_get($entry, 'result.meta.reference'))
+            ->filter()
+            ->map(fn ($ssid) => (string) $ssid)
+            ->unique()
+            ->values();
+
+        if ($ssids->isEmpty()) {
+            return;
+        }
+
+        $value = $ssids->implode(',');
+        $response = $this->hubSpotService->updateTripleCheckSsid($dealId, $value);
+
+        $this->logService->forGroup($groupId)->webhook('HubSpot: deal triple check ssid written', [
+            'dealId' => $dealId,
+            'tripleCheckSsid' => $value,
             'written' => filled($response),
         ]);
     }
@@ -1097,6 +1187,7 @@ class HubSpotWebhookService
                 'address1' => $this->streetAddress($properties),
                 'street_1' => $this->streetAddress($properties),
                 'street_2' => $this->secondStreetLine($properties),
+                'building' => $properties['building_number_'] ?? null,
                 'city' => $properties['city'] ?? null,
                 'region' => $properties['state'] ?? null,
                 'postcode' => $properties['zip'] ?? null,
@@ -1133,8 +1224,11 @@ class HubSpotWebhookService
 
             try {
                 $result = $this->tripleCheckService->create($data);
+
                 $this->registerTripleCheckWebhook($result, $groupId);
+
                 $results[] = [...$meta, 'result' => $result];
+
             } catch (SmartSearchException $e) {
                 Log::warning('TripleCheck creation failed for HubSpot subject.', [
                     ...$meta,
@@ -1179,10 +1273,51 @@ class HubSpotWebhookService
                 )
                 : [];
 
+            // Smartdoc ssid for contact
+            $smartDocSsid = data_get($entry, 'result.meta.smartdoc');
+            $smartDocWritten = filled($smartDocSsid)
+                ? $this->hubSpotService->updateContactSmartDocSsid(
+                    (string) $contactId,
+                    (string) $smartDocSsid,
+                    filled($subjectId) ? (string) $subjectId : null,
+                )
+                : [];
+
+            // Retrieve the TripleCheck bundle to obtain the related search IDs.
+            $tripleCheckId = data_get($entry, 'result.meta.reference');
+            $bundle = filled($tripleCheckId)
+                ? $this->tripleCheckService->get((string) $tripleCheckId)
+                : [];
+
+            // Retrieve the related UK individual AML search after writing SmartDoc.
+
+            // Temporarily disabled: retrieve the related UK Individual search.
+            $ukIndividualSsid = null;
+            $ukIndividual = [];
+            // $ukIndividualSsid = data_get($entry, 'result.meta.subject');
+            // $ukIndividual = filled($ukIndividualSsid)
+            //     ? $this->amlService->get((string) $ukIndividualSsid)
+            //     : [];
+
+            // Temporarily disabled: retrieve the related FraudCheck search.
+            $fraudCheckId = null;
+            $fraudCheck = [];
+            // $fraudCheckId = data_get($entry, 'result.meta.subject');
+            // $fraudCheck = filled($fraudCheckId)
+            //     ? $this->fraudCheckService->get((string) $fraudCheckId)
+            //     : [];
+
             $this->logService->forGroup($groupId)->webhook('HubSpot: contact triple check response written', [
                 'contactId' => $contactId,
                 'subjectId' => $subjectId,
+                'smartDocSsid' => $smartDocSsid,
+                'ukIndividualSsid' => $ukIndividualSsid,
+                'fraudCheckId' => $fraudCheckId,
                 'ssidWritten' => filled($ssidWritten),
+                'smartDocWritten' => filled($smartDocWritten),
+                'ukIndividualRetrieved' => filled($ukIndividual),
+                'fraudCheckRetrieved' => filled($fraudCheck),
+                'tripleCheckBundle' => $bundle,
                 'response' => $response,
                 'written' => filled($written),
             ]);

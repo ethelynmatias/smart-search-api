@@ -142,6 +142,37 @@ class AmlServiceTest extends TestCase
             && $request->data()['data']['attributes']['date_of_birth'] === null);
     }
 
+    public function test_get_retrieves_a_uk_individual_search_by_id(): void
+    {
+        $searchId = 'search-abc';
+
+        Http::fake([
+            "{$this->baseUrl}/v3/auth/token" => Http::response([
+                'data' => null,
+                'meta' => ['token' => 'fake-token'],
+            ], 201),
+            "{$this->baseUrl}/v3/ukindividual/searches/{$searchId}" => Http::response([
+                'data' => [
+                    'id' => $searchId,
+                    'type' => 'uk-individual',
+                    'attributes' => ['status' => 'complete'],
+                ],
+            ], 200),
+        ]);
+
+        $result = app(AmlService::class)->get($searchId);
+
+        $this->assertSame($searchId, $result['data']['id']);
+        $this->assertSame('complete', $result['data']['attributes']['status']);
+
+        Http::assertSent(function (Request $request) use ($searchId) {
+            return $request->method() === 'GET'
+                && $request->url() === "{$this->baseUrl}/v3/ukindividual/searches/{$searchId}"
+                && $request->header('Authorization')[0] === 'Bearer fake-token'
+                && $request->header('Accept')[0] === 'application/vnd.api+json';
+        });
+    }
+
     public function test_search_throws_when_the_api_rejects_the_request(): void
     {
         $this->fakeSmartSearch([

@@ -86,6 +86,11 @@ class HubSpotService
         return $this->updateDealProperties($dealId, ['smartdoc_ssid' => $smartDocSsid]);
     }
 
+    public function updateTripleCheckSsid(string $dealId, string $tripleCheckSsid): array
+    {
+        return $this->updateDealProperties($dealId, ['triple_check_ssid' => $tripleCheckSsid]);
+    }
+
     public function updateContactSmartDocSsid(string $contactId, string $ssid, ?string $subjectId): array
     {
         $existing = $this->contactProperty($contactId, 'smartdoc_ssid');
@@ -185,6 +190,7 @@ class HubSpotService
     {
         return $this->updateContactProperties($contactId, [
             'triple_check_status' => $status,
+            'smartdoc_status' => $status,
         ]);
     }
 
@@ -197,8 +203,11 @@ class HubSpotService
 
     public function updateContactTripleCheckLinkExpiryDate(string $contactId, ?Carbon $date = null): array
     {
+        $expiryDate = $this->dateTimeProperty($date ?? now()->addDays(5));
+
         return $this->updateContactProperties($contactId, [
-            'triple_check_link_expiry_date' => $this->dateTimeProperty($date ?? now()->addDays(5)),
+            'triple_check_link_expiry_date' => $expiryDate,
+            'smartdoc_link_expiry_date' => $expiryDate,
         ]);
     }
 
@@ -380,6 +389,13 @@ class HubSpotService
     {
         return $this->updateDealProperties($dealId, [
             'smartdoc_submission_request_date' => $this->dateProperty($date),
+        ]);
+    }
+
+    public function updateTripleCheckRequestDate(string $dealId, ?Carbon $date = null): array
+    {
+        return $this->updateDealProperties($dealId, [
+            'triple_check_request_date' => $this->dateProperty($date),
         ]);
     }
 
