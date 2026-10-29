@@ -147,45 +147,4 @@ class SmartDocService
             ],
         ])->json();
     }
-
-    public function listCategories(): array
-    {
-        return $this->client
-            ->get('/v3/document/categories')
-            ->json();
-    }
-
-    public function listDocumentTypes(): array
-    {
-        
-        return $this->client
-        ->get('/v3/document/types')
-        ->json();
-    }
-
-    public function getDocument(string $documentId): array
-    {
-        /*return $this->client
-            ->get("v3/document-request/searches/{$documentId}")
-            ->json();*/
-
-        return $this->client
-            ->get("v3/document/{$documentId}")
-            ->json();
-    }
-
-    public function getPdfLink(string $documentId): array
-    {
-        return $this->client
-            ->get("/v3/document/{$documentId}/pdf-link")
-            ->json();
-    }
-
-    /**
-     * Download a document's PDF as a binary file.
-     */
-    public function getPdf(string $documentId): Response
-    {
-        return $this->client->download("/v3/document/{$documentId}/pdf");
-    }
 }

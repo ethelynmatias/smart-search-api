@@ -45,4 +45,11 @@ class AmlService
             ]
         )->json();
     }
+
+    public function get(string $ssid): array
+    {
+        return $this->client->get(
+            "/v3/ukindividual/searches/{$ssid}"
+        )->json();
+    }
 }
