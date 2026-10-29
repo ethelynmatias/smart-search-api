@@ -306,6 +306,11 @@ class HubSpotWebhookService
             // Aml, smartdoc and fraud check
             $this->writeTripleCheckStatusesToContacts($tripleChecks, $logGroupId);
 
+            $this->writeTripleCheckSsidsToDeal((string) $dealId, $tripleChecks, $logGroupId);
+            $tripleCheckRequestDate = filled($tripleChecks)
+                ? $this->hubSpotService->updateTripleCheckRequestDate((string) $dealId)
+                : [];
+
             // Write the triple check statuses to the deal in HubSpot.
             $this->notificationTripleCheckSubmission($tripleChecks, $contacts, $logGroupId);
 
@@ -314,6 +319,7 @@ class HubSpotWebhookService
                     'dealId' => $dealId,
                     'propertyName' => $property,
                     'tripleChecks' => $tripleChecks,
+                    'tripleCheckRequestDateWritten' => filled($tripleCheckRequestDate),
                 ]);
             }
         } catch (Throwable $exception) {
@@ -747,6 +753,29 @@ class HubSpotWebhookService
         $this->logService->forGroup($groupId)->webhook('HubSpot: deal smartdoc ssid written', [
             'dealId' => $dealId,
             'smartdocSsid' => $value,
+            'written' => filled($response),
+        ]);
+    }
+
+    protected function writeTripleCheckSsidsToDeal(string $dealId, array $tripleChecks, ?string $groupId): void
+    {
+        $ssids = collect($tripleChecks)
+            ->map(fn (array $entry) => data_get($entry, 'result.meta.reference'))
+            ->filter()
+            ->map(fn ($ssid) => (string) $ssid)
+            ->unique()
+            ->values();
+
+        if ($ssids->isEmpty()) {
+            return;
+        }
+
+        $value = $ssids->implode(',');
+        $response = $this->hubSpotService->updateTripleCheckSsid($dealId, $value);
+
+        $this->logService->forGroup($groupId)->webhook('HubSpot: deal triple check ssid written', [
+            'dealId' => $dealId,
+            'tripleCheckSsid' => $value,
             'written' => filled($response),
         ]);
     }
