@@ -79,6 +79,13 @@ class SmartDocService
         ])->json();
     }
 
+    public function get(string $searchId): array
+    {
+        return $this->client->get(
+            "/v3/smartdoc/searches/{$searchId}"
+        )->json();
+    }
+
     public function createWebhook(string $searchId, ?string $callbackUrl = null): array
     {
         $callbackUrl ??= config('services.smartsearch.webhook_url') ?: route('webhooks.smartsearch');

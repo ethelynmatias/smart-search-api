@@ -62,4 +62,34 @@ class SmartDocServiceTest extends TestCase
                 ];
         });
     }
+
+    public function test_get_retrieves_a_smartdoc_search_by_id(): void
+    {
+        $searchId = 'smartdoc-123';
+
+        Http::fake([
+            "{$this->baseUrl}/v3/auth/token" => Http::response([
+                'meta' => ['token' => 'fake-token'],
+            ], 201),
+            "{$this->baseUrl}/v3/smartdoc/searches/{$searchId}" => Http::response([
+                'data' => [
+                    'id' => $searchId,
+                    'type' => 'smartdoc',
+                    'attributes' => ['status' => 'complete'],
+                ],
+            ]),
+        ]);
+
+        $result = app(SmartDocService::class)->get($searchId);
+
+        $this->assertSame($searchId, $result['data']['id']);
+        $this->assertSame('complete', $result['data']['attributes']['status']);
+
+        Http::assertSent(function (Request $request) use ($searchId): bool {
+            return $request->method() === 'GET'
+                && $request->url() === "{$this->baseUrl}/v3/smartdoc/searches/{$searchId}"
+                && $request->header('Authorization')[0] === 'Bearer fake-token'
+                && $request->header('Accept')[0] === 'application/vnd.api+json';
+        });
+    }
 }

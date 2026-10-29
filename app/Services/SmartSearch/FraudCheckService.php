@@ -60,9 +60,6 @@ class FraudCheckService
         )->json();
     }
 
-    /**
-     * Normalise a mobile number to the format the API expects.
-     */
     protected static function mobile(mixed $value): string
     {
         $number = preg_replace('/[^\d+]/', '', (string) $value) ?? '';
