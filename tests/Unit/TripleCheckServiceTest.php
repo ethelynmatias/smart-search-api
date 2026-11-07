@@ -101,29 +101,31 @@ class TripleCheckServiceTest extends TestCase
         });
     }
 
-    public function test_get_retrieves_the_search_bundle(): void
+    public function test_get_retrieves_searches_for_the_subject(): void
     {
-        $searchId = '3544ee19-f755-4822-af41-ead0fe9e8cdd';
+        $subjectId = '3544ee19-f755-4822-af41-ead0fe9e8cdd';
 
         Http::fake([
             "{$this->baseUrl}/v3/auth/token" => Http::response([
                 'meta' => ['token' => 'fake-token'],
             ], 201),
-            "{$this->baseUrl}/v3/triplecheck/searches/{$searchId}" => Http::response([
+            "{$this->baseUrl}/v3/searches*" => Http::response([
                 'data' => [
-                    'ukindividual' => 'uk-individual-123',
-                    'fraudcheck' => 'fraud-check-123',
+                    ['id' => 'search-123'],
                 ],
             ]),
         ]);
 
-        $result = app(TripleCheckService::class)->get($searchId);
+        $result = app(TripleCheckService::class)->get($subjectId);
 
-        $this->assertSame('uk-individual-123', $result['data']['ukindividual']);
+        $this->assertSame('search-123', $result['data'][0]['id']);
 
-        Http::assertSent(function (Request $request) use ($searchId): bool {
+        Http::assertSent(function (Request $request) use ($subjectId): bool {
+            parse_str((string) parse_url($request->url(), PHP_URL_QUERY), $query);
+
             return $request->method() === 'GET'
-                && $request->url() === "{$this->baseUrl}/v3/triplecheck/searches/{$searchId}"
+                && $request->url() === "{$this->baseUrl}/v3/searches?filter%5Bsubject%5D={$subjectId}"
+                && $query === ['filter' => ['subject' => $subjectId]]
                 && $request->header('Authorization')[0] === 'Bearer fake-token';
         });
     }

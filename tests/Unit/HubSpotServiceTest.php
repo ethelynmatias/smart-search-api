@@ -139,6 +139,27 @@ class HubSpotServiceTest extends TestCase
         $this->assertSame($this->contactId, $response['id']);
     }
 
+    public function test_fraud_check_ssid_is_written_to_a_contact(): void
+    {
+        Http::fake([
+            "{$this->baseUrl}/crm/v3/objects/contacts/{$this->contactId}" => Http::response([
+                'id' => $this->contactId,
+                'properties' => ['smart_search_fraud_check_ssid' => '100410697'],
+            ]),
+        ]);
+
+        $response = app(HubSpotService::class)->updateContactFraudCheckSsid(
+            $this->contactId,
+            '100410697',
+        );
+
+        $this->assertSame(
+            ['smart_search_fraud_check_ssid' => '100410697'],
+            $this->patchedProperties(),
+        );
+        $this->assertSame($this->contactId, $response['id']);
+    }
+
     public function test_triple_check_ssid_is_written_to_a_contact(): void
     {
         Http::fake([

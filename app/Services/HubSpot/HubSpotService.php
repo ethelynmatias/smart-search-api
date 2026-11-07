@@ -58,7 +58,7 @@ class HubSpotService
                 'firstname', 'lastname','middle_initial', 'email', 'phone', 'mobilephone', 'company',
                 'lifecyclestage', 'honorifictitle', 'flat_number', 'building_number_',
                 'address', 'street_address_2', 'street_address_1', 'city', 'zip',
-                'state', 'country', 'dob_date_of_birth', 'sex','smartdoc_subject_id','aml_ssid','smartdoc_ssid','smart_search_fraud_status'
+                'state', 'country', 'dob_date_of_birth', 'sex','smartdoc_subject_id','aml_ssid','smartdoc_ssid','smart_search_fraud_status','smart_search_fraud_check_ssid'
             ],
             'inputs' => $contactIds->map(fn ($id) => ['id' => (string) $id])->all(),
         ]);
@@ -153,6 +153,16 @@ class HubSpotService
     public function updateContactAmlSsid(string $contactId, string $ssid): array
     {
         return $this->updateContactProperties($contactId, ['aml_ssid' => $ssid]);
+    }
+
+    /**
+     * Write the FraudCheck search id onto the contact it was created for.
+     */
+    public function updateContactFraudCheckSsid(string $contactId, string $ssid): array
+    {
+        return $this->updateContactProperties($contactId, [
+            'smart_search_fraud_check_ssid' => $ssid,
+        ]);
     }
 
     /**

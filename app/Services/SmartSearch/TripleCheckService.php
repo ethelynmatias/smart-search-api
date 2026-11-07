@@ -87,12 +87,13 @@ class TripleCheckService
     }
 
     /**
-     * Retrieve a TripleCheck search by id.
+     * Retrieve searches for a subject.
      */
-    public function get(string $tripleCheckId): array
+    public function get(string $subjectId): array
     {
         return $this->client->get(
-            "/v3/triplecheck/searches/{$tripleCheckId}"
+            '/v3/searches',
+            ['filter' => ['subject' => $subjectId]],
         )->json();
     }
 
