@@ -304,7 +304,7 @@ class HubSpotWebhookService
                 : [];
 
             // Aml, smartdoc and fraud check
-            $this->writeTripleCheckStatusesToContacts($tripleChecks, $logGroupId);
+            $this->processTripleCheckResultsForContacts($tripleChecks, $logGroupId);
 
             $this->writeTripleCheckSsidsToDeal((string) $dealId, $tripleChecks, $logGroupId);
             $tripleCheckRequestDate = filled($tripleChecks)
@@ -1243,7 +1243,7 @@ class HubSpotWebhookService
         return $results;
     }
 
-    protected function writeTripleCheckStatusesToContacts(array $tripleChecks, ?string $groupId): void
+    protected function processTripleCheckResultsForContacts(array $tripleChecks, ?string $groupId): void
     {
         foreach ($tripleChecks as $entry) {
             $contactId = $entry['contactId'] ?? null;
@@ -1275,6 +1275,36 @@ class HubSpotWebhookService
 
             // Smartdoc ssid for contact
             $smartDocSsid = data_get($entry, 'result.meta.smartdoc');
+
+            // Retrieve the searches associated with the subject.
+            $bundle = filled($subjectId)
+                ? $this->tripleCheckService->get((string) $subjectId)
+                : [];
+
+            $ukIndividualSsid = null;
+            $fraudCheckId = null;
+            $fraudCheckStatus = null;
+            $ukIndividual = [];
+            $fraudCheck = [];
+
+            foreach (data_get($bundle, 'data', []) as $search) {
+                $serviceId = strtoupper((string) data_get($search, 'relationships.service.data.id'));
+                $searchId = data_get($search, 'id');
+
+                switch ($serviceId) {
+                    case 'SMARTDOC':
+                        $smartDocSsid ??= $searchId;
+                        break;
+                    case 'UK_INDIVIDUAL':
+                        $ukIndividualSsid = $searchId;
+                        break;
+                    case 'FRAUD_CHECK':
+                        $fraudCheckId = $searchId;
+                        $fraudCheckStatus = data_get($search, 'attributes.outcome');
+                        break;
+                }
+            }
+
             $smartDocWritten = filled($smartDocSsid)
                 ? $this->hubSpotService->updateContactSmartDocSsid(
                     (string) $contactId,
@@ -1283,29 +1313,28 @@ class HubSpotWebhookService
                 )
                 : [];
 
-            // Retrieve the TripleCheck bundle to obtain the related search IDs.
-            $tripleCheckId = data_get($entry, 'result.meta.reference');
-            $bundle = filled($tripleCheckId)
-                ? $this->tripleCheckService->get((string) $tripleCheckId)
+            $amlWritten = filled($ukIndividualSsid)
+                ? $this->hubSpotService->updateContactAmlSsid(
+                    (string) $contactId,
+                    (string) $ukIndividualSsid,
+                )
+                : [];
+
+            $fraudCheckWritten = filled($fraudCheckId)
+                ? $this->hubSpotService->updateContactFraudCheckSsid(
+                    (string) $contactId,
+                    (string) $fraudCheckId,
+                )
+                : [];
+
+            $fraudStatusWritten = filled($fraudCheckStatus)
+                ? $this->hubSpotService->updateContactFraudStatus(
+                    (string) $contactId,
+                    (string) $fraudCheckStatus,
+                )
                 : [];
 
             // Retrieve the related UK individual AML search after writing SmartDoc.
-
-            // Temporarily disabled: retrieve the related UK Individual search.
-            $ukIndividualSsid = null;
-            $ukIndividual = [];
-            // $ukIndividualSsid = data_get($entry, 'result.meta.subject');
-            // $ukIndividual = filled($ukIndividualSsid)
-            //     ? $this->amlService->get((string) $ukIndividualSsid)
-            //     : [];
-
-            // Temporarily disabled: retrieve the related FraudCheck search.
-            $fraudCheckId = null;
-            $fraudCheck = [];
-            // $fraudCheckId = data_get($entry, 'result.meta.subject');
-            // $fraudCheck = filled($fraudCheckId)
-            //     ? $this->fraudCheckService->get((string) $fraudCheckId)
-            //     : [];
 
             $this->logService->forGroup($groupId)->webhook('HubSpot: contact triple check response written', [
                 'contactId' => $contactId,
@@ -1315,6 +1344,10 @@ class HubSpotWebhookService
                 'fraudCheckId' => $fraudCheckId,
                 'ssidWritten' => filled($ssidWritten),
                 'smartDocWritten' => filled($smartDocWritten),
+                'amlWritten' => filled($amlWritten),
+                'fraudCheckWritten' => filled($fraudCheckWritten),
+                'fraudCheckStatus' => $fraudCheckStatus,
+                'fraudStatusWritten' => filled($fraudStatusWritten),
                 'ukIndividualRetrieved' => filled($ukIndividual),
                 'fraudCheckRetrieved' => filled($fraudCheck),
                 'tripleCheckBundle' => $bundle,
