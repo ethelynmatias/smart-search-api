@@ -354,6 +354,8 @@ class HubSpotWebhookService
             $this->logWorkflowFailure($logGroupId, "HubSpot: deal {$property} smartdoc failed", $dealId, $exception);
         }
 
+
+        /*
         $fraudChecks = [];
 
         try {
@@ -373,7 +375,7 @@ class HubSpotWebhookService
             }
         } catch (Throwable $exception) {
             $this->logWorkflowFailure($logGroupId, "HubSpot: deal {$property} fraud check failed", $dealId, $exception);
-        }
+        }*/
     }
 
     /**
