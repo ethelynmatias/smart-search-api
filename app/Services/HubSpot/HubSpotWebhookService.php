@@ -111,6 +111,7 @@ class HubSpotWebhookService
     public function handleEvent(array $event): void
     {
         $type = $event['subscriptionType'] ?? 'unknown';
+        $property = $event['propertyName'] ?? null;
 
         if (! $this->isNewEvent($event)) {
             return;
@@ -120,8 +121,13 @@ class HubSpotWebhookService
             $this->logService->webhook("HubSpot: {$type}", $event);
         }
 
-        match ($type) {
-            'deal.propertyChange' => $this->handleDealPropertyChange($event),
+        match (true) {
+            $type === 'deal.propertyChange'
+                && in_array($property, array_keys(self::SEARCH_PROPERTIES), true)
+                => $this->handleDealPropertyChange($event),
+            $type === 'contact.propertyChange'
+                && $property === 'contact_smart_search_request'
+                => $this->handleContactPropertyChange($event),
             default => Log::debug('Unhandled HubSpot webhook event', ['type' => $type]),
         };
     }
@@ -376,6 +382,172 @@ class HubSpotWebhookService
         } catch (Throwable $exception) {
             $this->logWorkflowFailure($logGroupId, "HubSpot: deal {$property} fraud check failed", $dealId, $exception);
         }*/
+    }
+
+    protected function handleContactPropertyChange(array $event): void
+    {
+        $property = $event['propertyName'] ?? null;
+        $value = $event['propertyValue'] ?? null;
+
+        if ($property !== 'contact_smart_search_request'
+            || ! in_array($value, ['true', true], true)) {
+            return;
+        }
+
+        $hubspotContactId = $event['objectId'] ?? null;
+
+        if (blank($hubspotContactId)) {
+            return;
+        }
+
+        $contact = $this->hubSpotService->getContact((string) $hubspotContactId);
+
+        if (blank($contact)) {
+            return;
+        }
+
+        $contact = [
+            'id' => $contact['id'] ?? (string) $hubspotContactId,
+            'properties' => $contact['properties'] ?? [],
+            'labels' => [],
+            'label' => null,
+        ];
+
+        $dealIds = $this->fetchAssociatedObjectIds('contacts', (string) $hubspotContactId, 'deals');
+        $companyIds = $this->fetchAssociatedObjectIds('contacts', (string) $hubspotContactId, 'companies');
+
+        if (filled($dealIds) && filled($companyIds)) {
+            $dealId = (string) $dealIds[0];
+            $companyId = $companyIds[0] ?? null;
+            $contacts = filled($companyId)
+                ? $this->fetchCompanyContacts((string) $companyId)
+                : $this->fetchDealContacts((string) $dealId);
+
+            if (blank($contacts)) {
+                return;
+            }
+
+            $eventLog = $this->logService->webhook('HubSpot: contact.propertyChange', $event);
+            $logGroupId = $eventLog->log_group_id;
+
+            $amlContacts = $this->amlContacts($contacts);
+
+            $this->logService->forGroup($logGroupId)->webhook('HubSpot: AML contacts', [
+                'contactId' => $hubspotContactId,
+                'dealId' => $dealId,
+                'companyId' => $companyId,
+                'contacts' => $contacts,
+                'amlContacts' => $amlContacts,
+                'amlContactIds' => collect($amlContacts)->pluck('id')->all(),
+            ]);
+
+            try {
+                $tripleChecks = filled($amlContacts)
+                    ? $this->runTripleChecks($amlContacts, $logGroupId)
+                    : [];
+
+                $this->processTripleCheckResultsForContacts($tripleChecks, $logGroupId);
+                $this->writeTripleCheckSsidsToDeal($dealId, $tripleChecks, $logGroupId);
+
+                $tripleCheckRequestDate = filled($tripleChecks)
+                    ? $this->hubSpotService->updateTripleCheckRequestDate($dealId)
+                    : [];
+
+                $this->notificationTripleCheckSubmission($tripleChecks, $contacts, $logGroupId);
+
+                if (filled($tripleChecks)) {
+                    $this->logService->forGroup($logGroupId)->webhook('HubSpot: contact smart search triple check', [
+                        'contactId' => $hubspotContactId,
+                        'propertyName' => $property,
+                        'propertyValue' => $value,
+                        'dealId' => $dealId,
+                        'tripleChecks' => $tripleChecks,
+                        'tripleCheckRequestDateWritten' => filled($tripleCheckRequestDate),
+                    ]);
+                }
+            } catch (Throwable $exception) {
+                $this->logWorkflowFailure($logGroupId, "HubSpot: contact {$property} triple check failed", $dealId, $exception);
+            }
+
+            $nonAmlContacts = collect($contacts)
+                ->reject(fn (array $contact) => $this->hasAmlLabel($contact['labels'] ?? []))
+                ->values()
+                ->all();
+
+            try {
+                $smartDoc = filled($nonAmlContacts)
+                    ? $this->runSmartDocSearches($nonAmlContacts)
+                    : [];
+
+                if (filled($smartDoc)) {
+                    $this->recordSmartDocDetails($dealId, $smartDoc, $logGroupId, $nonAmlContacts);
+
+                    $this->logService->forGroup($logGroupId)->webhook('HubSpot: contact smart search smartdoc', [
+                        'contactId' => $hubspotContactId,
+                        'propertyName' => $property,
+                        'propertyValue' => $value,
+                        'dealId' => $dealId,
+                        'smartdoc' => $smartDoc,
+                    ]);
+                }
+            } catch (Throwable $exception) {
+                $this->logWorkflowFailure($logGroupId, "HubSpot: contact {$property} smartdoc failed", $dealId, $exception);
+            }
+        } elseif (filled($dealIds)) {
+            // Run TripleCheck only on the contact.
+            $contacts = [$contact];
+            $dealId = (string) $dealIds[0];
+
+            $eventLog = $this->logService->webhook('HubSpot: contact.propertyChange', $event);
+            $logGroupId = $eventLog->log_group_id;
+
+            try {
+                $tripleChecks = $this->runTripleChecks($contacts, $logGroupId);
+
+                $this->processTripleCheckResultsForContacts($tripleChecks, $logGroupId);
+
+                $this->writeTripleCheckSsidsToDeal($dealId, $tripleChecks, $logGroupId);
+                $tripleCheckRequestDate = filled($tripleChecks)
+                    ? $this->hubSpotService->updateTripleCheckRequestDate($dealId)
+                    : [];
+
+                $this->notificationTripleCheckSubmission($tripleChecks, $contacts, $logGroupId);
+
+                if (filled($tripleChecks)) {
+                    $this->logService->forGroup($logGroupId)->webhook('HubSpot: contact smart search triple check', [
+                        'contactId' => $hubspotContactId,
+                        'propertyName' => $property,
+                        'propertyValue' => $value,
+                        'dealId' => $dealId,
+                        'tripleChecks' => $tripleChecks,
+                        'tripleCheckRequestDateWritten' => filled($tripleCheckRequestDate),
+                    ]);
+                }
+            } catch (Throwable $exception) {
+                $this->logWorkflowFailure($logGroupId, "HubSpot: contact {$property} triple check failed", $dealId, $exception);
+            }
+        } else {
+            // Run SmartDoc only on the contact.
+            $contacts = [$contact];
+
+            $eventLog = $this->logService->webhook('HubSpot: contact.propertyChange', $event);
+            $logGroupId = $eventLog->log_group_id;
+
+            try {
+                $smartDoc = $this->runSmartDocSearches($contacts);
+
+                if (filled($smartDoc)) {
+                    $this->logService->forGroup($logGroupId)->webhook('HubSpot: contact smart search smartdoc', [
+                        'contactId' => $hubspotContactId,
+                        'propertyName' => $property,
+                        'propertyValue' => $value,
+                        'smartdoc' => $smartDoc,
+                    ]);
+                }
+            } catch (Throwable $exception) {
+                $this->logWorkflowFailure($logGroupId, "HubSpot: contact {$property} smartdoc failed", $hubspotContactId, $exception);
+            }
+        }
     }
 
     /**
@@ -1626,6 +1798,40 @@ class HubSpotWebhookService
                 'labels' => $labels->get((string) ($contact['id'] ?? ''), []),
                 'label' => collect($labels->get((string) ($contact['id'] ?? ''), []))->first(),
             ])
+            ->all();
+    }
+
+    /**
+     * Fetch the ids of objects associated with a HubSpot object.
+     */
+    protected function fetchAssociatedObjectIds(string $objectType, string $objectId, string $associatedObjectType): array
+    {
+        $client = $this->hubSpotAuth->client("fetch {$objectType} {$associatedObjectType}");
+
+        if (blank($client)) {
+            return [];
+        }
+
+        $response = $client->get("/crm/v4/objects/{$objectType}/{$objectId}/associations/{$associatedObjectType}");
+
+        if ($response->failed()) {
+            Log::warning('Failed to fetch HubSpot object associations.', [
+                'objectType' => $objectType,
+                'objectId' => $objectId,
+                'associatedObjectType' => $associatedObjectType,
+                'status' => $response->status(),
+                'body' => $response->json(),
+            ]);
+
+            return [];
+        }
+
+        return collect($response->json('results', []))
+            ->pluck('toObjectId')
+            ->filter()
+            ->map(fn ($id) => (string) $id)
+            ->unique()
+            ->values()
             ->all();
     }
 
