@@ -111,6 +111,7 @@ class HubSpotWebhookService
     public function handleEvent(array $event): void
     {
         $type = $event['subscriptionType'] ?? 'unknown';
+        $property = $event['propertyName'] ?? null;
 
         if (! $this->isNewEvent($event)) {
             return;
@@ -120,8 +121,13 @@ class HubSpotWebhookService
             $this->logService->webhook("HubSpot: {$type}", $event);
         }
 
-        match ($type) {
-            'deal.propertyChange' => $this->handleDealPropertyChange($event),
+        match (true) {
+            $type === 'deal.propertyChange'
+                && in_array($property, array_keys(self::SEARCH_PROPERTIES), true)
+                => $this->handleDealPropertyChange($event),
+            $type === 'contact.propertyChange'
+                && $property === 'contact_smart_search_request'
+                => $this->handleContactPropertyChange($event),
             default => Log::debug('Unhandled HubSpot webhook event', ['type' => $type]),
         };
     }
@@ -376,6 +382,14 @@ class HubSpotWebhookService
         } catch (Throwable $exception) {
             $this->logWorkflowFailure($logGroupId, "HubSpot: deal {$property} fraud check failed", $dealId, $exception);
         }*/
+    }
+
+    protected function handleContactPropertyChange(array $event): void
+    {
+        $property = $event['propertyName'] ?? null;
+        $value = $event['propertyValue'] ?? null;
+
+
     }
 
     /**
