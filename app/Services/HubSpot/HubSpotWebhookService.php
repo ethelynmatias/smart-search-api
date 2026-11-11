@@ -389,7 +389,53 @@ class HubSpotWebhookService
         $property = $event['propertyName'] ?? null;
         $value = $event['propertyValue'] ?? null;
 
+        $hubspotContactId = $event['objectId'] ?? null;
 
+        if (blank($hubspotContactId)) {
+            return;
+        }
+
+        $contact = $this->hubSpotService->getContact((string) $hubspotContactId);
+
+        if (blank($contact)) {
+            return;
+        }
+
+        $contact = [
+            'id' => $contact['id'] ?? (string) $hubspotContactId,
+            'properties' => $contact['properties'] ?? [],
+            'labels' => [],
+            'label' => null,
+        ];
+
+        $dealIds = $this->fetchAssociatedObjectIds('contacts', (string) $hubspotContactId, 'deals');
+        $companyIds = $this->fetchAssociatedObjectIds('contacts', (string) $hubspotContactId, 'companies');
+
+        if (filled($dealIds) && filled($companyIds)) {
+            $contacts = $this->fetchCompanyContacts((string) $companyIds[0]);
+        } elseif (filled($dealIds)) {
+            // Run triple check only 
+            $contacts = [$contact];
+            
+        } else {
+            //run smartdoc only on the contact 
+        }
+
+        $eventLog = $this->logService->webhook('HubSpot: contact.propertyChange', $event);
+        $logGroupId = $eventLog->log_group_id;
+
+        $tripleChecks = $this->runTripleChecks($contacts, $logGroupId);
+        $this->processTripleCheckResultsForContacts($tripleChecks, $logGroupId);
+
+        $this->logService->forGroup($logGroupId)->webhook('HubSpot: contact smart search triple check', [
+            'contactId' => $hubspotContactId,
+            'propertyName' => $property,
+            'propertyValue' => $value,
+            'dealIds' => $dealIds,
+            'companyIds' => $companyIds,
+            'contactCount' => count($contacts),
+            'tripleChecks' => $tripleChecks,
+        ]);
     }
 
     /**
@@ -1640,6 +1686,40 @@ class HubSpotWebhookService
                 'labels' => $labels->get((string) ($contact['id'] ?? ''), []),
                 'label' => collect($labels->get((string) ($contact['id'] ?? ''), []))->first(),
             ])
+            ->all();
+    }
+
+    /**
+     * Fetch the ids of objects associated with a HubSpot object.
+     */
+    protected function fetchAssociatedObjectIds(string $objectType, string $objectId, string $associatedObjectType): array
+    {
+        $client = $this->hubSpotAuth->client("fetch {$objectType} {$associatedObjectType}");
+
+        if (blank($client)) {
+            return [];
+        }
+
+        $response = $client->get("/crm/v4/objects/{$objectType}/{$objectId}/associations/{$associatedObjectType}");
+
+        if ($response->failed()) {
+            Log::warning('Failed to fetch HubSpot object associations.', [
+                'objectType' => $objectType,
+                'objectId' => $objectId,
+                'associatedObjectType' => $associatedObjectType,
+                'status' => $response->status(),
+                'body' => $response->json(),
+            ]);
+
+            return [];
+        }
+
+        return collect($response->json('results', []))
+            ->pluck('toObjectId')
+            ->filter()
+            ->map(fn ($id) => (string) $id)
+            ->unique()
+            ->values()
             ->all();
     }
 
