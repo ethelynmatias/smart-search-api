@@ -413,6 +413,69 @@ class HubSpotWebhookService
 
         if (filled($dealIds) && filled($companyIds)) {
             $contacts = $this->fetchCompanyContacts((string) $companyIds[0]);
+            $dealId = (string) $dealIds[0];
+
+            if (blank($contacts)) {
+                return;
+            }
+
+            $eventLog = $this->logService->webhook('HubSpot: contact.propertyChange', $event);
+            $logGroupId = $eventLog->log_group_id;
+
+            $amlContacts = $this->amlContacts($contacts);
+
+            try {
+                $tripleChecks = filled($amlContacts)
+                    ? $this->runTripleChecks($amlContacts, $logGroupId)
+                    : [];
+
+                $this->processTripleCheckResultsForContacts($tripleChecks, $logGroupId);
+                $this->writeTripleCheckSsidsToDeal($dealId, $tripleChecks, $logGroupId);
+
+                $tripleCheckRequestDate = filled($tripleChecks)
+                    ? $this->hubSpotService->updateTripleCheckRequestDate($dealId)
+                    : [];
+
+                $this->notificationTripleCheckSubmission($tripleChecks, $contacts, $logGroupId);
+
+                if (filled($tripleChecks)) {
+                    $this->logService->forGroup($logGroupId)->webhook('HubSpot: contact smart search triple check', [
+                        'contactId' => $hubspotContactId,
+                        'propertyName' => $property,
+                        'propertyValue' => $value,
+                        'dealId' => $dealId,
+                        'tripleChecks' => $tripleChecks,
+                        'tripleCheckRequestDateWritten' => filled($tripleCheckRequestDate),
+                    ]);
+                }
+            } catch (Throwable $exception) {
+                $this->logWorkflowFailure($logGroupId, "HubSpot: contact {$property} triple check failed", $dealId, $exception);
+            }
+
+            $nonAmlContacts = collect($contacts)
+                ->reject(fn (array $contact) => $this->hasAmlLabel($contact['labels'] ?? []))
+                ->values()
+                ->all();
+
+            try {
+                $smartDoc = filled($nonAmlContacts)
+                    ? $this->runSmartDocSearches($nonAmlContacts)
+                    : [];
+
+                if (filled($smartDoc)) {
+                    $this->recordSmartDocDetails($dealId, $smartDoc, $logGroupId, $nonAmlContacts);
+
+                    $this->logService->forGroup($logGroupId)->webhook('HubSpot: contact smart search smartdoc', [
+                        'contactId' => $hubspotContactId,
+                        'propertyName' => $property,
+                        'propertyValue' => $value,
+                        'dealId' => $dealId,
+                        'smartdoc' => $smartDoc,
+                    ]);
+                }
+            } catch (Throwable $exception) {
+                $this->logWorkflowFailure($logGroupId, "HubSpot: contact {$property} smartdoc failed", $dealId, $exception);
+            }
         } elseif (filled($dealIds)) {
             // Run TripleCheck only on the contact.
             $contacts = [$contact];
