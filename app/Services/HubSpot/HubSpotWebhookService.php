@@ -414,28 +414,60 @@ class HubSpotWebhookService
         if (filled($dealIds) && filled($companyIds)) {
             $contacts = $this->fetchCompanyContacts((string) $companyIds[0]);
         } elseif (filled($dealIds)) {
-            // Run triple check only 
+            // Run TripleCheck only on the contact.
             $contacts = [$contact];
-            
+            $dealId = (string) $dealIds[0];
+
+            $eventLog = $this->logService->webhook('HubSpot: contact.propertyChange', $event);
+            $logGroupId = $eventLog->log_group_id;
+
+            try {
+                $tripleChecks = $this->runTripleChecks($contacts, $logGroupId);
+
+                $this->processTripleCheckResultsForContacts($tripleChecks, $logGroupId);
+
+                $this->writeTripleCheckSsidsToDeal($dealId, $tripleChecks, $logGroupId);
+                $tripleCheckRequestDate = filled($tripleChecks)
+                    ? $this->hubSpotService->updateTripleCheckRequestDate($dealId)
+                    : [];
+
+                $this->notificationTripleCheckSubmission($tripleChecks, $contacts, $logGroupId);
+
+                if (filled($tripleChecks)) {
+                    $this->logService->forGroup($logGroupId)->webhook('HubSpot: contact smart search triple check', [
+                        'contactId' => $hubspotContactId,
+                        'propertyName' => $property,
+                        'propertyValue' => $value,
+                        'dealId' => $dealId,
+                        'tripleChecks' => $tripleChecks,
+                        'tripleCheckRequestDateWritten' => filled($tripleCheckRequestDate),
+                    ]);
+                }
+            } catch (Throwable $exception) {
+                $this->logWorkflowFailure($logGroupId, "HubSpot: contact {$property} triple check failed", $dealId, $exception);
+            }
         } else {
-            //run smartdoc only on the contact 
+            // Run SmartDoc only on the contact.
+            $contacts = [$contact];
+
+            $eventLog = $this->logService->webhook('HubSpot: contact.propertyChange', $event);
+            $logGroupId = $eventLog->log_group_id;
+
+            try {
+                $smartDoc = $this->runSmartDocSearches($contacts);
+
+                if (filled($smartDoc)) {
+                    $this->logService->forGroup($logGroupId)->webhook('HubSpot: contact smart search smartdoc', [
+                        'contactId' => $hubspotContactId,
+                        'propertyName' => $property,
+                        'propertyValue' => $value,
+                        'smartdoc' => $smartDoc,
+                    ]);
+                }
+            } catch (Throwable $exception) {
+                $this->logWorkflowFailure($logGroupId, "HubSpot: contact {$property} smartdoc failed", $hubspotContactId, $exception);
+            }
         }
-
-        $eventLog = $this->logService->webhook('HubSpot: contact.propertyChange', $event);
-        $logGroupId = $eventLog->log_group_id;
-
-        $tripleChecks = $this->runTripleChecks($contacts, $logGroupId);
-        $this->processTripleCheckResultsForContacts($tripleChecks, $logGroupId);
-
-        $this->logService->forGroup($logGroupId)->webhook('HubSpot: contact smart search triple check', [
-            'contactId' => $hubspotContactId,
-            'propertyName' => $property,
-            'propertyValue' => $value,
-            'dealIds' => $dealIds,
-            'companyIds' => $companyIds,
-            'contactCount' => count($contacts),
-            'tripleChecks' => $tripleChecks,
-        ]);
     }
 
     /**
