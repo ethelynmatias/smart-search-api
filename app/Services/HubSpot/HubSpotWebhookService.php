@@ -389,6 +389,11 @@ class HubSpotWebhookService
         $property = $event['propertyName'] ?? null;
         $value = $event['propertyValue'] ?? null;
 
+        if ($property !== 'contact_smart_search_request'
+            || ! in_array($value, ['true', true], true)) {
+            return;
+        }
+
         $hubspotContactId = $event['objectId'] ?? null;
 
         if (blank($hubspotContactId)) {
@@ -412,8 +417,11 @@ class HubSpotWebhookService
         $companyIds = $this->fetchAssociatedObjectIds('contacts', (string) $hubspotContactId, 'companies');
 
         if (filled($dealIds) && filled($companyIds)) {
-            $contacts = $this->fetchCompanyContacts((string) $companyIds[0]);
             $dealId = (string) $dealIds[0];
+            $companyId = $companyIds[0] ?? null;
+            $contacts = filled($companyId)
+                ? $this->fetchCompanyContacts((string) $companyId)
+                : $this->fetchDealContacts((string) $dealId);
 
             if (blank($contacts)) {
                 return;
@@ -423,6 +431,15 @@ class HubSpotWebhookService
             $logGroupId = $eventLog->log_group_id;
 
             $amlContacts = $this->amlContacts($contacts);
+
+            $this->logService->forGroup($logGroupId)->webhook('HubSpot: AML contacts', [
+                'contactId' => $hubspotContactId,
+                'dealId' => $dealId,
+                'companyId' => $companyId,
+                'contacts' => $contacts,
+                'amlContacts' => $amlContacts,
+                'amlContactIds' => collect($amlContacts)->pluck('id')->all(),
+            ]);
 
             try {
                 $tripleChecks = filled($amlContacts)
